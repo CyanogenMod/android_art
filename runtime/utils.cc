@@ -56,6 +56,10 @@
 #include <linux/unistd.h>
 #endif
 
+#ifdef ALLOW_DEXROOT_ON_CACHE
+#include <cutils/properties.h>
+#endif
+
 namespace art {
 
 pid_t GetTid() {
@@ -1172,6 +1176,25 @@ const char* GetAndroidData() {
   return android_data;
 }
 
+#ifdef ALLOW_DEXROOT_ON_CACHE
+const char* GetAndroidCache() {
+  const char* android_cache = getenv("ANDROID_CACHE");
+  if (android_cache == NULL) {
+    if (OS::DirectoryExists("/cache")) {
+      android_cache = "/cache";
+    } else {
+      LOG(FATAL) << "ANDROID_CACHE not set and /cache does not exist";
+      return "";
+    }
+  }
+  if (!OS::DirectoryExists(android_cache)) {
+    LOG(FATAL) << "Failed to find ANDROID_CACHE directory " << android_cache;
+    return "";
+  }
+  return android_cache;
+}
+#endif
+
 std::string GetDalvikCacheOrDie(const char* android_data) {
   std::string dalvik_cache(StringPrintf("%s/dalvik-cache", android_data));
 
@@ -1192,6 +1215,11 @@ std::string GetDalvikCacheOrDie(const char* android_data) {
 
 std::string GetDalvikCacheFilenameOrDie(const std::string& location) {
   std::string dalvik_cache(GetDalvikCacheOrDie(GetAndroidData()));
+#ifdef ALLOW_DEXROOT_ON_CACHE
+  if (StartsWith(location, "/system")) {
+      dalvik_cache = GetDalvikCacheOrDie(GetAndroidCache());
+  }
+#endif
   if (location[0] != '/') {
     LOG(FATAL) << "Expected path in location to be absolute: "<< location;
   }

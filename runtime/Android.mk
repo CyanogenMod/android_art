@@ -307,6 +307,9 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
   ifeq ($$(art_target_or_host),target)
     LOCAL_CLANG := $(ART_TARGET_CLANG)
     LOCAL_CFLAGS += $(ART_TARGET_CFLAGS)
+    ifneq ($(TARGET_BUILD_VARIANT),user)
+      LOCAL_CFLAGS += -DALLOW_DEXROOT_ON_CACHE
+    endif
   else # host
     LOCAL_CLANG := $(ART_HOST_CLANG)
     LOCAL_CFLAGS += $(ART_HOST_CFLAGS)
