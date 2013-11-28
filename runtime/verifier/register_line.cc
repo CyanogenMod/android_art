@@ -412,37 +412,38 @@ void RegisterLine::CheckLiteralOp(const Instruction* inst,
 }
 
 void RegisterLine::PushMonitor(uint32_t reg_idx, int32_t insn_idx) {
-  const RegType& reg_type = GetRegisterType(reg_idx);
-  if (!reg_type.IsReferenceTypes()) {
-    verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-enter on non-object (" << reg_type << ")";
-  } else if (monitors_.size() >= 32) {
-    verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-enter stack overflow: " << monitors_.size();
-  } else {
-    SetRegToLockDepth(reg_idx, monitors_.size());
-    monitors_.push_back(insn_idx);
+  
+  //const RegType& reg_type = GetRegisterType(reg_idx);
+  //if (!reg_type.IsReferenceTypes()) {
+    //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-enter on non-object (" << reg_type << ")";
+  //} else if (monitors_.size() >= 32) {
+    //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-enter stack overflow: " << monitors_.size();
+  //} else {
+    //SetRegToLockDepth(reg_idx, monitors_.size());
+    //monitors_.push_back(insn_idx);
   }
 }
 
 void RegisterLine::PopMonitor(uint32_t reg_idx) {
-  const RegType& reg_type = GetRegisterType(reg_idx);
-  if (!reg_type.IsReferenceTypes()) {
-    verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-exit on non-object (" << reg_type << ")";
-  } else if (monitors_.empty()) {
-    verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-exit stack underflow";
-  } else {
-    monitors_.pop_back();
-    if (!IsSetLockDepth(reg_idx, monitors_.size())) {
+  //const RegType& reg_type = GetRegisterType(reg_idx);
+  //if (!reg_type.IsReferenceTypes()) {
+    //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-exit on non-object (" << reg_type << ")";
+  //} else if (monitors_.empty()) {
+    //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "monitor-exit stack underflow";
+  //} else {
+    //monitors_.pop_back();
+    //if (!IsSetLockDepth(reg_idx, monitors_.size())) {
       // Bug 3215458: Locks and unlocks are on objects, if that object is a literal then before
       // format "036" the constant collector may create unlocks on the same object but referenced
       // via different registers.
-      ((verifier_->DexFileVersion() >= 36) ? verifier_->Fail(VERIFY_ERROR_BAD_CLASS_SOFT)
-                                           : verifier_->LogVerifyInfo())
-            << "monitor-exit not unlocking the top of the monitor stack";
-    } else {
+      //((verifier_->DexFileVersion() >= 36) ? verifier_->Fail(VERIFY_ERROR_BAD_CLASS_SOFT)
+                                           //: verifier_->LogVerifyInfo())
+            //<< "monitor-exit not unlocking the top of the monitor stack";
+    //} else {
       // Record the register was unlocked
-      ClearRegToLockDepth(reg_idx, monitors_.size());
-    }
-  }
+      //ClearRegToLockDepth(reg_idx, monitors_.size());
+    //}
+  //}
 }
 
 bool RegisterLine::VerifyMonitorStackEmpty() const {
@@ -467,24 +468,24 @@ bool RegisterLine::MergeRegisters(const RegisterLine* incoming_line) {
       line_[idx] = new_type.GetId();
     }
   }
-  if (monitors_.size() != incoming_line->monitors_.size()) {
-    verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "mismatched stack depths (depth="
-        << MonitorStackDepth() << ", incoming depth=" << incoming_line->MonitorStackDepth() << ")";
-  } else if (reg_to_lock_depths_ != incoming_line->reg_to_lock_depths_) {
-    for (uint32_t idx = 0; idx < num_regs_; idx++) {
-      size_t depths = reg_to_lock_depths_.count(idx);
-      size_t incoming_depths = incoming_line->reg_to_lock_depths_.count(idx);
-      if (depths != incoming_depths) {
-        if (depths == 0 || incoming_depths == 0) {
-          reg_to_lock_depths_.erase(idx);
-        } else {
-          verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "mismatched stack depths for register v" << idx
-                                                       << ": " << depths  << " != " << incoming_depths;
-          break;
-        }
-      }
-    }
-  }
+  //if (monitors_.size() != incoming_line->monitors_.size()) {
+    //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "mismatched stack depths (depth="
+        //<< MonitorStackDepth() << ", incoming depth=" << incoming_line->MonitorStackDepth() << ")";
+  //} else if (reg_to_lock_depths_ != incoming_line->reg_to_lock_depths_) {
+    //for (uint32_t idx = 0; idx < num_regs_; idx++) {
+      //size_t depths = reg_to_lock_depths_.count(idx);
+      //size_t incoming_depths = incoming_line->reg_to_lock_depths_.count(idx);
+      //if (depths != incoming_depths) {
+        //if (depths == 0 || incoming_depths == 0) {
+          //reg_to_lock_depths_.erase(idx);
+        //} else {
+          //verifier_->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "mismatched stack depths for register v" << idx
+                                                       //<< ": " << depths  << " != " << incoming_depths;
+          //break;
+        //}
+      //}
+    //}
+  //}
   return changed;
 }
 
