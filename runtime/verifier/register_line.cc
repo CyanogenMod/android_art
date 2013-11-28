@@ -421,7 +421,7 @@ void RegisterLine::PushMonitor(uint32_t reg_idx, int32_t insn_idx) {
   //} else {
     //SetRegToLockDepth(reg_idx, monitors_.size());
     //monitors_.push_back(insn_idx);
-  }
+  //}
 }
 
 void RegisterLine::PopMonitor(uint32_t reg_idx) {
