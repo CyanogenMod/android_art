@@ -1765,8 +1765,8 @@ PRIMITIVE_ARRAY_FUNCTIONS(jdouble, Double, 'D');
     if (address == NULL) {
       JniAbortF(__FUNCTION__, "non-nullable address is NULL");
     }
-    if (capacity <= 0) {
-      JniAbortF(__FUNCTION__, "capacity must be greater than 0: %lld", capacity);
+    if (capacity < 0) {
+      JniAbortF(__FUNCTION__, "capacity must be non negative: %lld", capacity);
     }
     return CHECK_JNI_EXIT("L", baseEnv(env)->NewDirectByteBuffer(env, address, capacity));
   }
@@ -2025,61 +2025,4 @@ const JNINativeInterface gCheckNativeInterface = {
   CheckJNI::GetObjectRefType,
 };
 
-const JNINativeInterface* GetCheckJniNativeInterface() {
-  return &gCheckNativeInterface;
-}
-
-class CheckJII {
- public:
-  static jint DestroyJavaVM(JavaVM* vm) {
-    ScopedCheck sc(vm, false, __FUNCTION__);
-    sc.Check(true, "v", vm);
-    return CHECK_JNI_EXIT("I", BaseVm(vm)->DestroyJavaVM(vm));
-  }
-
-  static jint AttachCurrentThread(JavaVM* vm, JNIEnv** p_env, void* thr_args) {
-    ScopedCheck sc(vm, false, __FUNCTION__);
-    sc.Check(true, "vpp", vm, p_env, thr_args);
-    return CHECK_JNI_EXIT("I", BaseVm(vm)->AttachCurrentThread(vm, p_env, thr_args));
-  }
-
-  static jint AttachCurrentThreadAsDaemon(JavaVM* vm, JNIEnv** p_env, void* thr_args) {
-    ScopedCheck sc(vm, false, __FUNCTION__);
-    sc.Check(true, "vpp", vm, p_env, thr_args);
-    return CHECK_JNI_EXIT("I", BaseVm(vm)->AttachCurrentThreadAsDaemon(vm, p_env, thr_args));
-  }
-
-  static jint DetachCurrentThread(JavaVM* vm) {
-    ScopedCheck sc(vm, true, __FUNCTION__);
-    sc.Check(true, "v", vm);
-    return CHECK_JNI_EXIT("I", BaseVm(vm)->DetachCurrentThread(vm));
-  }
-
-  static jint GetEnv(JavaVM* vm, void** env, jint version) {
-    ScopedCheck sc(vm, true, __FUNCTION__);
-    sc.Check(true, "vpI", vm);
-    return CHECK_JNI_EXIT("I", BaseVm(vm)->GetEnv(vm, env, version));
-  }
-
- private:
-  static inline const JNIInvokeInterface* BaseVm(JavaVM* vm) {
-    return reinterpret_cast<JavaVMExt*>(vm)->unchecked_functions;
-  }
-};
-
-const JNIInvokeInterface gCheckInvokeInterface = {
-  NULL,  // reserved0
-  NULL,  // reserved1
-  NULL,  // reserved2
-  CheckJII::DestroyJavaVM,
-  CheckJII::AttachCurrentThread,
-  CheckJII::DetachCurrentThread,
-  CheckJII::GetEnv,
-  CheckJII::AttachCurrentThreadAsDaemon
-};
-
-const JNIInvokeInterface* GetCheckJniInvokeInterface() {
-  return &gCheckInvokeInterface;
-}
-
-}  // namespace art
+const JNINativeInterface* GetCheckJ
