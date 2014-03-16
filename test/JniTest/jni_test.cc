@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <vector>
 
 #include "jni.h"
 
@@ -80,4 +81,15 @@ extern "C" JNIEXPORT void JNICALL Java_JniTest_testCallStaticVoidMethodOnSubClas
   assert(sub_class != NULL);
 
   env->CallStaticVoidMethod(sub_class, execute);
+}
+
+// https://code.google.com/p/android/issues/detail?id=63055
+extern "C" void JNICALL Java_JniTest_testZeroLengthByteBuffers(JNIEnv* env, jclass) {
+  std::vector<uint8_t> buffer(1);
+  jobject byte_buffer = env->NewDirectByteBuffer(&buffer[0], 0);
+  assert(byte_buffer != NULL);
+  assert(!env->ExceptionCheck());
+
+  assert(env->GetDirectBufferAddress(byte_buffer) == &buffer[0]);
+  assert(env->GetDirectBufferCapacity(byte_buffer) == 0);
 }

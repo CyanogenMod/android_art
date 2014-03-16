@@ -19,6 +19,7 @@ class JniTest {
         System.loadLibrary("arttest");
         testFindClassOnAttachedNativeThread();
         testCallStaticVoidMethodOnSubClass();
+        testZeroLengthByteBuffers();
     }
 
     private static native void testFindClassOnAttachedNativeThread();
@@ -42,4 +43,6 @@ class JniTest {
     private static class testCallStaticVoidMethodOnSubClass_SubClass
         extends testCallStaticVoidMethodOnSubClass_SuperClass {
     }
+
+    private static native void testZeroLengthByteBuffers();
 }
