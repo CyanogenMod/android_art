@@ -203,6 +203,24 @@ class Heap {
   // dalvik.system.VMRuntime.setTargetHeapUtilization.
   void SetTargetHeapUtilization(float target);
 
+  // Sets HEAP_MIN_FREE, implements
+  // dalvik.system.VMRuntime.SetTargetHeapMinFree.
+  void SetTargetHeapMinFree(size_t bytes);
+
+  // Gets HEAP_MIN_FREE
+  int GetTargetHeapMinFree() const {
+    return min_free_;
+  }
+
+  // Sets HEAP_CONCURRENT_START, implements
+  // dalvik.system.VMRuntime.SetTargetHeapConcurrentStart.
+  void SetTargetHeapConcurrentStart(size_t bytes);
+
+  // Gets HEAP_CONCURRENT_START
+  int GetTargetHeapConcurrentStart() const {
+    return concurrent_start_bytes_;
+  }
+
   // For the alloc space, sets the maximum number of bytes that the heap is allowed to allocate
   // from the system. Doesn't allow the space to exceed its growth limit.
   void SetIdealFootprint(size_t max_allowed_footprint);
