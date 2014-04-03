@@ -940,6 +940,14 @@ void Heap::SetTargetHeapUtilization(float target) {
   target_utilization_ = target;
 }
 
+void Heap::SetTargetHeapMinFree(size_t bytes) {
+  min_free_ = bytes;
+}
+
+void Heap::SetTargetHeapConcurrentStart(size_t bytes) {
+  concurrent_start_bytes_ = bytes;
+}
+
 size_t Heap::GetObjectsAllocated() const {
   size_t total = 0;
   typedef std::vector<space::ContinuousSpace*>::const_iterator It;
