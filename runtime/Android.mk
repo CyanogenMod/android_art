@@ -331,6 +331,11 @@ ifeq ($(ART_USE_HSPACE_COMPACT),true)
   LIBART_CFLAGS += -DART_USE_HSPACE_COMPACT
 endif
 
+# No gap check is bugging out
+ifeq ($(ART_DONT_CHECK_GAP),true)
+  LIBART_CFLAGS += -DDONT_CHECK_GAP
+endif
+
 # $(1): target or host
 # $(2): ndebug or debug
 define build-libart
