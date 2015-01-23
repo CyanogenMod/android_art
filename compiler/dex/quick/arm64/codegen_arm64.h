@@ -67,6 +67,7 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
 
  public:
   Arm64Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena);
+  ~Arm64Mir2Lir();
 
   // Required for target - codegen helpers.
   bool SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div, RegLocation rl_src,
@@ -267,6 +268,7 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
 
   virtual void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) OVERRIDE;
   void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
+  void Cleanup() QC_WEAK;
 
 private:
   /**

@@ -1101,6 +1101,8 @@ class MIRGraph {
    */
   bool HasSuspendTestBetween(BasicBlock* source, BasicBlockId target_id);
 
+  void CleanupGraphData() QC_WEAK;
+
  protected:
   int FindCommonParent(int block1, int block2);
   void ComputeSuccLineIn(ArenaBitVector* dest, const ArenaBitVector* src1,
