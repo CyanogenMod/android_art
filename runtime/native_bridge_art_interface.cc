@@ -71,7 +71,7 @@ uint32_t GetNativeMethods(JNIEnv* env, jclass clazz, JNINativeMethod* methods,
       if (count < method_count) {
         methods[count].name = m->GetName();
         methods[count].signature = m->GetShorty();
-        methods[count].fnPtr = const_cast<void*>(m->GetNativeMethod());
+        methods[count].fnPtr = m->GetEntryPointFromJni();
         count++;
       } else {
         LOG(WARNING) << "Output native method array too small. Skipping " << PrettyMethod(m);
@@ -84,7 +84,7 @@ uint32_t GetNativeMethods(JNIEnv* env, jclass clazz, JNINativeMethod* methods,
       if (count < method_count) {
         methods[count].name = m->GetName();
         methods[count].signature = m->GetShorty();
-        methods[count].fnPtr = const_cast<void*>(m->GetNativeMethod());
+        methods[count].fnPtr = m->GetEntryPointFromJni();
         count++;
       } else {
         LOG(WARNING) << "Output native method array too small. Skipping " << PrettyMethod(m);
@@ -107,10 +107,11 @@ static android::NativeBridgeRuntimeCallbacks native_bridge_art_callbacks_ {
   GetMethodShorty, GetNativeMethodCount, GetNativeMethods
 };
 
-void LoadNativeBridge(std::string& native_bridge_library_filename) {
-  android::LoadNativeBridge(native_bridge_library_filename.c_str(), &native_bridge_art_callbacks_);
+bool LoadNativeBridge(std::string& native_bridge_library_filename) {
   VLOG(startup) << "Runtime::Setup native bridge library: "
       << (native_bridge_library_filename.empty() ? "(empty)" : native_bridge_library_filename);
+  return android::LoadNativeBridge(native_bridge_library_filename.c_str(),
+                                   &native_bridge_art_callbacks_);
 }
 
 void PreInitializeNativeBridge(std::string dir) {
@@ -118,7 +119,6 @@ void PreInitializeNativeBridge(std::string dir) {
 #ifndef __APPLE__  // Mac OS does not support CLONE_NEWNS.
   if (unshare(CLONE_NEWNS) == -1) {
     LOG(WARNING) << "Could not create mount namespace.";
-    return;
   }
   android::PreInitializeNativeBridge(dir.c_str(), GetInstructionSetString(kRuntimeISA));
 #endif

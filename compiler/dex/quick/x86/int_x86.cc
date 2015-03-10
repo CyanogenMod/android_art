@@ -1661,7 +1661,16 @@ void X86Mir2Lir::GenLongArith(RegLocation rl_dest, RegLocation rl_src, Instructi
     AnnotateDalvikRegAccess(lir, (displacement + HIWORD_OFFSET) >> 2,
                             false /* is_load */, true /* is64bit */);
   }
-  FreeTemp(rl_src.reg);
+
+  int v_src_reg = mir_graph_->SRegToVReg(rl_src.s_reg_low);
+  int v_dst_reg = mir_graph_->SRegToVReg(rl_dest.s_reg_low);
+
+  // If the left operand is in memory and the right operand is in a register
+  // and both belong to the same dalvik register then we should clobber the
+  // right one because it doesn't hold valid data anymore.
+  if (v_src_reg == v_dst_reg) {
+    Clobber(rl_src.reg);
+  }
 }
 
 void X86Mir2Lir::GenLongArith(RegLocation rl_dest, RegLocation rl_src1,
@@ -2003,13 +2012,6 @@ void X86Mir2Lir::GenNegLong(RegLocation rl_dest, RegLocation rl_src) {
     OpRegReg(kOpNeg, rl_result.reg, rl_src.reg);
   } else {
     rl_result = ForceTempWide(rl_src);
-    if (((rl_dest.location == kLocPhysReg) && (rl_src.location == kLocPhysReg)) &&
-        ((rl_dest.reg.GetLowReg() == rl_src.reg.GetHighReg()))) {
-      // The registers are the same, so we would clobber it before the use.
-      RegStorage temp_reg = AllocTemp();
-      OpRegCopy(temp_reg, rl_result.reg);
-      rl_result.reg.SetHighReg(temp_reg.GetReg());
-    }
     OpRegReg(kOpNeg, rl_result.reg.GetLow(), rl_result.reg.GetLow());    // rLow = -rLow
     OpRegImm(kOpAdc, rl_result.reg.GetHigh(), 0);                   // rHigh = rHigh + CF
     OpRegReg(kOpNeg, rl_result.reg.GetHigh(), rl_result.reg.GetHigh());  // rHigh = -rHigh

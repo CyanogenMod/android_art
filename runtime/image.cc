@@ -24,7 +24,7 @@
 namespace art {
 
 const byte ImageHeader::kImageMagic[] = { 'a', 'r', 't', '\n' };
-const byte ImageHeader::kImageVersion[] = { '0', '0', '9', '\0' };
+const byte ImageHeader::kImageVersion[] = { '0', '1', '2', '\0' };
 
 ImageHeader::ImageHeader(uint32_t image_begin,
                          uint32_t image_size,
@@ -35,7 +35,8 @@ ImageHeader::ImageHeader(uint32_t image_begin,
                          uint32_t oat_file_begin,
                          uint32_t oat_data_begin,
                          uint32_t oat_data_end,
-                         uint32_t oat_file_end)
+                         uint32_t oat_file_end,
+                         bool compile_pic)
   : image_begin_(image_begin),
     image_size_(image_size),
     image_bitmap_offset_(image_bitmap_offset),
@@ -46,7 +47,8 @@ ImageHeader::ImageHeader(uint32_t image_begin,
     oat_data_end_(oat_data_end),
     oat_file_end_(oat_file_end),
     patch_delta_(0),
-    image_roots_(image_roots) {
+    image_roots_(image_roots),
+    compile_pic_(compile_pic) {
   CHECK_EQ(image_begin, RoundUp(image_begin, kPageSize));
   CHECK_EQ(oat_file_begin, RoundUp(oat_file_begin, kPageSize));
   CHECK_EQ(oat_data_begin, RoundUp(oat_data_begin, kPageSize));

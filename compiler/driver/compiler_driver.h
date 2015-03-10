@@ -39,6 +39,8 @@
 #include "thread_pool.h"
 #include "utils/arena_allocator.h"
 #include "utils/dedupe_set.h"
+#include "utils/swap_space.h"
+#include "dex/verified_method.h"
 
 namespace art {
 
@@ -90,6 +92,8 @@ class CompilerTls {
     void* llvm_info_;
 };
 
+static constexpr bool kUseMurmur3Hash = true;
+
 class CompilerDriver {
  public:
   // Create a compiler targeting the requested "instruction_set".
@@ -104,8 +108,10 @@ class CompilerDriver {
                           InstructionSet instruction_set,
                           InstructionSetFeatures instruction_set_features,
                           bool image, std::set<std::string>* image_classes,
+                          std::set<std::string>* compiled_classes,
                           size_t thread_count, bool dump_stats, bool dump_passes,
-                          CumulativeLogger* timer, std::string profile_file = "");
+                          CumulativeLogger* timer, int swap_fd = -1,
+                          std::string profile_file = "");
 
   ~CompilerDriver();
 
@@ -210,6 +216,9 @@ class CompilerDriver {
   bool CanEmbedTypeInCode(const DexFile& dex_file, uint32_t type_idx,
                           bool* is_type_initialized, bool* use_direct_type_ptr,
                           uintptr_t* direct_type_ptr, bool* out_is_finalizable);
+
+  bool CanEmbedStringInCode(const DexFile& dex_file, uint32_t string_idx,
+                            bool* use_direct_type_ptr, uintptr_t* direct_type_ptr);
 
   // Get the DexCache for the
   mirror::DexCache* GetDexCache(const DexCompilationUnit* mUnit)
@@ -356,6 +365,12 @@ class CompilerDriver {
                      uint32_t target_method_idx,
                      size_t literal_offset)
       LOCKS_EXCLUDED(compiled_methods_lock_);
+  void AddStringPatch(const DexFile* dex_file,
+                      uint16_t referrer_class_def_idx,
+                      uint32_t referrer_method_idx,
+                      uint32_t string_idx,
+                      size_t literal_offset)
+      LOCKS_EXCLUDED(compiled_methods_lock_);
 
   bool GetSupportBootImageFixup() const {
     return support_boot_image_fixup_;
@@ -367,6 +382,12 @@ class CompilerDriver {
 
   ArenaPool* GetArenaPool() {
     return &arena_pool_;
+  }
+  const ArenaPool* GetArenaPool() const {
+    return &arena_pool_;
+  }
+  SwapAllocator<void>& GetSwapSpaceAllocator() {
+    return *swap_space_allocator_.get();
   }
 
   bool WriteElf(const std::string& android_root,
@@ -575,6 +596,35 @@ class CompilerDriver {
     DISALLOW_COPY_AND_ASSIGN(TypePatchInformation);
   };
 
+  class StringPatchInformation : public PatchInformation {
+   public:
+    uint32_t GetStringIdx() const {
+      return string_idx_;
+    }
+
+    bool IsType() const {
+      return false;
+    }
+    const TypePatchInformation* AsType() const {
+      return nullptr;
+    }
+
+   private:
+    StringPatchInformation(const DexFile* dex_file,
+                           uint16_t referrer_class_def_idx,
+                           uint32_t referrer_method_idx,
+                           uint32_t string_idx,
+                           size_t literal_offset)
+        : PatchInformation(dex_file, referrer_class_def_idx, referrer_method_idx, literal_offset),
+          string_idx_(string_idx) {
+    }
+
+    const uint32_t string_idx_;
+
+    friend class CompilerDriver;
+    DISALLOW_COPY_AND_ASSIGN(StringPatchInformation);
+  };
+
   const std::vector<const CallPatchInformation*>& GetCodeToPatch() const {
     return code_to_patch_;
   }
@@ -584,18 +634,24 @@ class CompilerDriver {
   const std::vector<const TypePatchInformation*>& GetClassesToPatch() const {
     return classes_to_patch_;
   }
+  const std::vector<const StringPatchInformation*>& GetStringsToPatch() const {
+    return strings_to_patch_;
+  }
 
   // Checks if class specified by type_idx is one of the image_classes_
   bool IsImageClass(const char* descriptor) const;
 
+  // Checks if the provided class should be compiled, i.e., is in classes_to_compile_.
+  bool IsClassToCompile(const char* descriptor) const;
+
   void RecordClassStatus(ClassReference ref, mirror::Class::Status status)
       LOCKS_EXCLUDED(compiled_classes_lock_);
 
-  std::vector<uint8_t>* DeduplicateCode(const std::vector<uint8_t>& code);
-  std::vector<uint8_t>* DeduplicateMappingTable(const std::vector<uint8_t>& code);
-  std::vector<uint8_t>* DeduplicateVMapTable(const std::vector<uint8_t>& code);
-  std::vector<uint8_t>* DeduplicateGCMap(const std::vector<uint8_t>& code);
-  std::vector<uint8_t>* DeduplicateCFIInfo(const std::vector<uint8_t>* cfi_info);
+  SwapVector<uint8_t>* DeduplicateCode(const ArrayRef<const uint8_t>& code);
+  SwapVector<uint8_t>* DeduplicateMappingTable(const ArrayRef<const uint8_t>& code);
+  SwapVector<uint8_t>* DeduplicateVMapTable(const ArrayRef<const uint8_t>& code);
+  SwapVector<uint8_t>* DeduplicateGCMap(const ArrayRef<const uint8_t>& code);
+  SwapVector<uint8_t>* DeduplicateCFIInfo(const ArrayRef<const uint8_t>& cfi_info);
 
   /*
    * @brief return the pointer to the Call Frame Information.
@@ -605,11 +661,11 @@ class CompilerDriver {
     return cfi_info_.get();
   }
 
-  ProfileFile profile_file_;
-  bool profile_present_;
-
   // Should the compiler run on this method given profile information?
   bool SkipCompilation(const std::string& method_name);
+
+  // Get memory usage during compilation.
+  std::string GetMemoryUsageString(bool extended) const;
 
  private:
   // These flags are internal to CompilerDriver for collecting INVOKE resolution statistics.
@@ -633,11 +689,12 @@ class CompilerDriver {
 
  public:  // TODO make private or eliminate.
   // Compute constant code and method pointers when possible.
-  void GetCodeAndMethodForDirectCall(InvokeType* type, InvokeType sharp_type,
+  void GetCodeAndMethodForDirectCall(/*out*/InvokeType* type,
+                                     InvokeType sharp_type,
                                      bool no_guarantee_of_dex_cache_entry,
-                                     mirror::Class* referrer_class,
+                                     const mirror::Class* referrer_class,
                                      mirror::ArtMethod* method,
-                                     int* stats_flags,
+                                     /*out*/int* stats_flags,
                                      MethodReference* target_method,
                                      uintptr_t* direct_code, uintptr_t* direct_method)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -695,15 +752,25 @@ class CompilerDriver {
   void CompileMethod(const DexFile::CodeItem* code_item, uint32_t access_flags,
                      InvokeType invoke_type, uint16_t class_def_idx, uint32_t method_idx,
                      jobject class_loader, const DexFile& dex_file,
-                     DexToDexCompilationLevel dex_to_dex_compilation_level)
+                     DexToDexCompilationLevel dex_to_dex_compilation_level,
+                     bool compilation_enabled)
       LOCKS_EXCLUDED(compiled_methods_lock_);
 
   static void CompileClass(const ParallelCompilationManager* context, size_t class_def_index)
       LOCKS_EXCLUDED(Locks::mutator_lock_);
 
+  // Swap pool and allocator used for native allocations. May be file-backed. Needs to be first
+  // as other fields rely on this.
+  std::unique_ptr<SwapSpace> swap_space_;
+  std::unique_ptr<SwapAllocator<void> > swap_space_allocator_;
+
+  ProfileFile profile_file_;
+  bool profile_present_;
+
   std::vector<const CallPatchInformation*> code_to_patch_;
   std::vector<const CallPatchInformation*> methods_to_patch_;
   std::vector<const TypePatchInformation*> classes_to_patch_;
+  std::vector<const StringPatchInformation*> strings_to_patch_;
 
   const CompilerOptions* const compiler_options_;
   VerificationResults* const verification_results_;
@@ -734,6 +801,11 @@ class CompilerDriver {
   // the image. Note if image_classes_ is nullptr, all classes are
   // included in the image.
   std::unique_ptr<std::set<std::string>> image_classes_;
+
+  // If image_ is true, specifies the classes that will be compiled in
+  // the image. Note if classes_to_compile_ is nullptr, all classes are
+  // included in the image.
+  std::unique_ptr<std::set<std::string>> classes_to_compile_;
 
   size_t thread_count_;
   uint64_t start_ns_;
@@ -781,42 +853,81 @@ class CompilerDriver {
   // DeDuplication data structures, these own the corresponding byte arrays.
   class DedupeHashFunc {
    public:
-    size_t operator()(const std::vector<uint8_t>& array) const {
-      // For small arrays compute a hash using every byte.
-      static const size_t kSmallArrayThreshold = 16;
-      size_t hash = 0x811c9dc5;
-      if (array.size() <= kSmallArrayThreshold) {
+    size_t operator()(const ArrayRef<const uint8_t>& array) const {
+      if (kUseMurmur3Hash) {
+        static constexpr uint32_t c1 = 0xcc9e2d51;
+        static constexpr uint32_t c2 = 0x1b873593;
+        static constexpr uint32_t r1 = 15;
+        static constexpr uint32_t r2 = 13;
+        static constexpr uint32_t m = 5;
+        static constexpr uint32_t n = 0xe6546b64;
+
+        uint32_t hash = 0;
+        uint32_t len = static_cast<uint32_t>(array.size());
+
+        const int nblocks = len / 4;
+        typedef __attribute__((__aligned__(1))) uint32_t unaligned_uint32_t;
+        const unaligned_uint32_t *blocks = reinterpret_cast<const uint32_t*>(array.data());
+        int i;
+        for (i = 0; i < nblocks; i++) {
+          uint32_t k = blocks[i];
+          k *= c1;
+          k = (k << r1) | (k >> (32 - r1));
+          k *= c2;
+
+          hash ^= k;
+          hash = ((hash << r2) | (hash >> (32 - r2))) * m + n;
+        }
+
+        const uint8_t *tail = reinterpret_cast<const uint8_t*>(array.data() + nblocks * 4);
+        uint32_t k1 = 0;
+
+        switch (len & 3) {
+          case 3:
+            k1 ^= tail[2] << 16;
+          case 2:
+            k1 ^= tail[1] << 8;
+          case 1:
+            k1 ^= tail[0];
+
+            k1 *= c1;
+            k1 = (k1 << r1) | (k1 >> (32 - r1));
+            k1 *= c2;
+            hash ^= k1;
+        }
+
+        hash ^= len;
+        hash ^= (hash >> 16);
+        hash *= 0x85ebca6b;
+        hash ^= (hash >> 13);
+        hash *= 0xc2b2ae35;
+        hash ^= (hash >> 16);
+
+        return hash;
+      } else {
+        size_t hash = 0x811c9dc5;
         for (uint8_t b : array) {
           hash = (hash * 16777619) ^ b;
         }
-      } else {
-        // For larger arrays use the 2 bytes at 6 bytes (the location of a push registers
-        // instruction field for quick generated code on ARM) and then select a number of other
-        // values at random.
-        static const size_t kRandomHashCount = 16;
-        for (size_t i = 0; i < 2; ++i) {
-          uint8_t b = array[i + 6];
-          hash = (hash * 16777619) ^ b;
-        }
-        for (size_t i = 2; i < kRandomHashCount; ++i) {
-          size_t r = i * 1103515245 + 12345;
-          uint8_t b = array[r % array.size()];
-          hash = (hash * 16777619) ^ b;
-        }
+        hash += hash << 13;
+        hash ^= hash >> 7;
+        hash += hash << 3;
+        hash ^= hash >> 17;
+        hash += hash << 5;
+        return hash;
       }
-      hash += hash << 13;
-      hash ^= hash >> 7;
-      hash += hash << 3;
-      hash ^= hash >> 17;
-      hash += hash << 5;
-      return hash;
     }
   };
-  DedupeSet<std::vector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_code_;
-  DedupeSet<std::vector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_mapping_table_;
-  DedupeSet<std::vector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_vmap_table_;
-  DedupeSet<std::vector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_gc_map_;
-  DedupeSet<std::vector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_cfi_info_;
+  DedupeSet<ArrayRef<const uint8_t>,
+            SwapVector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_code_;
+  DedupeSet<ArrayRef<const uint8_t>,
+            SwapVector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_mapping_table_;
+  DedupeSet<ArrayRef<const uint8_t>,
+            SwapVector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_vmap_table_;
+  DedupeSet<ArrayRef<const uint8_t>,
+            SwapVector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_gc_map_;
+  DedupeSet<ArrayRef<const uint8_t>,
+            SwapVector<uint8_t>, size_t, DedupeHashFunc, 4> dedupe_cfi_info_;
 
   DISALLOW_COPY_AND_ASSIGN(CompilerDriver);
 };

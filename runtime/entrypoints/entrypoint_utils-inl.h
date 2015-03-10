@@ -429,7 +429,14 @@ static inline mirror::ArtMethod* FindMethodFromCode(uint32_t method_idx,
     case kInterface: {
       uint32_t imt_index = resolved_method->GetDexMethodIndex() % mirror::Class::kImtSize;
       mirror::ArtMethod* imt_method = (*this_object)->GetClass()->GetEmbeddedImTableEntry(imt_index);
-      if (!imt_method->IsImtConflictMethod()) {
+      if (!imt_method->IsImtConflictMethod() && !imt_method->IsImtUnimplementedMethod()) {
+        if (kIsDebugBuild) {
+          mirror::Class* klass = (*this_object)->GetClass();
+          mirror::ArtMethod* method = klass->FindVirtualMethodForInterface(resolved_method);
+          CHECK_EQ(imt_method, method) << PrettyMethod(resolved_method) << " / " <<
+              PrettyMethod(imt_method) << " / " << PrettyMethod(method) << " / " <<
+              PrettyClass(klass);
+        }
         return imt_method;
       } else {
         mirror::ArtMethod* interface_method =
@@ -529,8 +536,7 @@ static inline mirror::ArtMethod* FindMethodFast(uint32_t method_idx,
                                                 mirror::Object* this_object,
                                                 mirror::ArtMethod* referrer,
                                                 bool access_check, InvokeType type) {
-  bool is_direct = type == kStatic || type == kDirect;
-  if (UNLIKELY(this_object == NULL && !is_direct)) {
+  if (UNLIKELY(this_object == NULL && type != kStatic)) {
     return NULL;
   }
   mirror::ArtMethod* resolved_method =
@@ -555,7 +561,7 @@ static inline mirror::ArtMethod* FindMethodFast(uint32_t method_idx,
   }
   if (type == kInterface) {  // Most common form of slow path dispatch.
     return this_object->GetClass()->FindVirtualMethodForInterface(resolved_method);
-  } else if (is_direct) {
+  } else if (type == kStatic || type == kDirect) {
     return resolved_method;
   } else if (type == kSuper) {
     return referrer->GetDeclaringClass()->GetSuperClass()

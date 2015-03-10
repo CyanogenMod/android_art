@@ -376,6 +376,11 @@ TEST_F(JniInternalTest, FromReflectedField_ToReflectedField) {
   ASSERT_NE(fid, nullptr);
   // Turn the fid into a java.lang.reflect.Field...
   jobject field = env_->ToReflectedField(c, fid, JNI_FALSE);
+  for (size_t i = 0; i <= 512; ++i) {
+    // Regression test for b/18396311, ToReflectedField leaking local refs causing a local
+    // reference table overflows with 512 references to ArtField
+    env_->DeleteLocalRef(env_->ToReflectedField(c, fid, JNI_FALSE));
+  }
   ASSERT_NE(c, nullptr);
   ASSERT_TRUE(env_->IsInstanceOf(field, jlrField));
   // ...and back again.
@@ -407,6 +412,11 @@ TEST_F(JniInternalTest, FromReflectedMethod_ToReflectedMethod) {
   ASSERT_NE(mid, nullptr);
   // Turn the mid into a java.lang.reflect.Constructor...
   jobject method = env_->ToReflectedMethod(c, mid, JNI_FALSE);
+  for (size_t i = 0; i <= 512; ++i) {
+    // Regression test for b/18396311, ToReflectedMethod leaking local refs causing a local
+    // reference table overflows with 512 references to ArtMethod
+    env_->DeleteLocalRef(env_->ToReflectedMethod(c, mid, JNI_FALSE));
+  }
   ASSERT_NE(method, nullptr);
   ASSERT_TRUE(env_->IsInstanceOf(method, jlrConstructor));
   // ...and back again.
@@ -1013,10 +1023,11 @@ TEST_F(JniInternalTest, GetObjectRefType) {
 
   // TODO: invoke a native method and test that its arguments are considered local references.
 
-  // Null as object should fail.
-  CheckJniAbortCatcher jni_abort_catcher;
+  // Null as pointer should not fail and return invalid-ref. b/18820997
   EXPECT_EQ(JNIInvalidRefType, env_->GetObjectRefType(nullptr));
-  jni_abort_catcher.Check("java_object == null");
+
+  // TODO: Null as reference should return the original type.
+  // This requires running a GC so a non-null object gets freed.
 }
 
 TEST_F(JniInternalTest, StaleWeakGlobal) {

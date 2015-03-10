@@ -147,10 +147,14 @@ Runtime::Runtime()
       target_sdk_version_(0),
       implicit_null_checks_(false),
       implicit_so_checks_(false),
-      implicit_suspend_checks_(false) {
+      implicit_suspend_checks_(false),
+      is_native_bridge_loaded_(false) {
 }
 
 Runtime::~Runtime() {
+  if (is_native_bridge_loaded_) {
+    UnloadNativeBridge();
+  }
   if (dump_gc_performance_on_shutdown_) {
     // This can't be called from the Heap destructor below because it
     // could call RosAlloc::InspectAll() which needs the thread_list
@@ -172,9 +176,6 @@ Runtime::~Runtime() {
     BackgroundMethodSamplingProfiler::Shutdown();
   }
 
-  // Shutdown the fault manager if it was initialized.
-  fault_manager.Shutdown();
-
   Trace::Shutdown();
 
   // Make sure to let the GC complete if it is running.
@@ -187,6 +188,10 @@ Runtime::~Runtime() {
 
   // Make sure all other non-daemon threads have terminated, and all daemon threads are suspended.
   delete thread_list_;
+
+  // Shutdown the fault manager if it was initialized.
+  fault_manager.Shutdown();
+
   delete monitor_list_;
   delete monitor_pool_;
   delete class_linker_;
@@ -410,8 +415,17 @@ bool Runtime::Start() {
 
   started_ = true;
 
+  if (IsZygote()) {
+    ScopedObjectAccess soa(self);
+    gc::space::ImageSpace* image_space = heap_->GetImageSpace();
+    if (image_space != nullptr) {
+      Runtime::Current()->GetInternTable()->AddImageStringsToTable(image_space);
+      Runtime::Current()->GetClassLinker()->MoveImageClassesToClassTable();
+    }
+  }
+
   if (!IsImageDex2OatEnabled() || !Runtime::Current()->GetHeap()->HasImageSpace()) {
-    ScopedObjectAccess soa(Thread::Current());
+    ScopedObjectAccess soa(self);
     StackHandleScope<1> hs(soa.Self());
     auto klass(hs.NewHandle<mirror::Class>(mirror::Class::GetJavaLangClass()));
     class_linker_->EnsureInitialized(klass, true, true);
@@ -433,12 +447,11 @@ bool Runtime::Start() {
       return false;
     }
   } else {
-    bool have_native_bridge = !native_bridge_library_filename_.empty();
-    if (have_native_bridge) {
+    if (is_native_bridge_loaded_) {
       PreInitializeNativeBridge(".");
     }
-    DidForkFromZygote(self->GetJniEnv(), have_native_bridge ? NativeBridgeAction::kInitialize :
-        NativeBridgeAction::kUnload, GetInstructionSetString(kRuntimeISA));
+    DidForkFromZygote(self->GetJniEnv(), NativeBridgeAction::kInitialize,
+                      GetInstructionSetString(kRuntimeISA));
   }
 
   StartDaemonThreads();
@@ -517,14 +530,17 @@ bool Runtime::InitZygote() {
 void Runtime::DidForkFromZygote(JNIEnv* env, NativeBridgeAction action, const char* isa) {
   is_zygote_ = false;
 
-  switch (action) {
-    case NativeBridgeAction::kUnload:
-      UnloadNativeBridge();
-      break;
+  if (is_native_bridge_loaded_) {
+    switch (action) {
+      case NativeBridgeAction::kUnload:
+        UnloadNativeBridge();
+        is_native_bridge_loaded_ = false;
+        break;
 
-    case NativeBridgeAction::kInitialize:
-      InitializeNativeBridge(env, isa);
-      break;
+      case NativeBridgeAction::kInitialize:
+        InitializeNativeBridge(env, isa);
+        break;
+    }
   }
 
   // Create the thread pool.
@@ -744,7 +760,7 @@ bool Runtime::Init(const RuntimeOptions& raw_options, bool ignore_unrecognized) 
     case kArm64:
     case kX86_64:
       implicit_null_checks_ = true;
-      implicit_so_checks_ = true;
+      implicit_so_checks_ = (RUNNING_ON_VALGRIND == 0);
       break;
     default:
       // Keep the defaults.
@@ -881,8 +897,7 @@ bool Runtime::Init(const RuntimeOptions& raw_options, bool ignore_unrecognized) 
   // Runtime::Start():
   //   DidForkFromZygote(kInitialize) -> try to initialize any native bridge given.
   //   No-op wrt native bridge.
-  native_bridge_library_filename_ = options->native_bridge_library_filename_;
-  LoadNativeBridge(native_bridge_library_filename_);
+  is_native_bridge_loaded_ = LoadNativeBridge(options->native_bridge_library_filename_);
 
   VLOG(startup) << "Runtime::Init exiting";
   return true;
@@ -1142,26 +1157,14 @@ void Runtime::VisitConcurrentRoots(RootCallback* callback, void* arg, VisitRootF
 
 void Runtime::VisitNonThreadRoots(RootCallback* callback, void* arg) {
   java_vm_->VisitRoots(callback, arg);
-  if (!pre_allocated_OutOfMemoryError_.IsNull()) {
-    pre_allocated_OutOfMemoryError_.VisitRoot(callback, arg, 0, kRootVMInternal);
-    DCHECK(!pre_allocated_OutOfMemoryError_.IsNull());
-  }
-  resolution_method_.VisitRoot(callback, arg, 0, kRootVMInternal);
-  DCHECK(!resolution_method_.IsNull());
-  if (!pre_allocated_NoClassDefFoundError_.IsNull()) {
-    pre_allocated_NoClassDefFoundError_.VisitRoot(callback, arg, 0, kRootVMInternal);
-    DCHECK(!pre_allocated_NoClassDefFoundError_.IsNull());
-  }
-  if (HasImtConflictMethod()) {
-    imt_conflict_method_.VisitRoot(callback, arg, 0, kRootVMInternal);
-  }
-  if (HasDefaultImt()) {
-    default_imt_.VisitRoot(callback, arg, 0, kRootVMInternal);
-  }
+  pre_allocated_OutOfMemoryError_.VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
+  resolution_method_.VisitRoot(callback, arg, RootInfo(kRootVMInternal));
+  pre_allocated_NoClassDefFoundError_.VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
+  imt_conflict_method_.VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
+  imt_unimplemented_method_.VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
+  default_imt_.VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
   for (int i = 0; i < Runtime::kLastCalleeSaveType; i++) {
-    if (!callee_save_methods_[i].IsNull()) {
-      callee_save_methods_[i].VisitRoot(callback, arg, 0, kRootVMInternal);
-    }
+    callee_save_methods_[i].VisitRootIfNonNull(callback, arg, RootInfo(kRootVMInternal));
   }
   verifier::MethodVerifier::VisitStaticRoots(callback, arg);
   {

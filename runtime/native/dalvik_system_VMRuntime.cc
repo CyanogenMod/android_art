@@ -216,7 +216,7 @@ static void VMRuntime_concurrentGC(JNIEnv* env, jobject) {
 typedef std::map<std::string, mirror::String*> StringTable;
 
 static void PreloadDexCachesStringsCallback(mirror::Object** root, void* arg,
-                                            uint32_t /*thread_id*/, RootType /*root_type*/)
+                                            const RootInfo& /*root_info*/)
     SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
   StringTable& table = *reinterpret_cast<StringTable*>(arg);
   mirror::String* string = const_cast<mirror::Object*>(*root)->AsString();
@@ -254,7 +254,7 @@ static void PreloadDexCachesResolveType(mirror::DexCache* dex_cache, uint32_t ty
   if (class_name[1] == '\0') {
     klass = linker->FindPrimitiveClass(class_name[0]);
   } else {
-    klass = linker->LookupClass(class_name, NULL);
+    klass = linker->LookupClass(class_name, ComputeModifiedUtf8Hash(class_name), NULL);
   }
   if (klass == NULL) {
     return;

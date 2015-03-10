@@ -372,18 +372,18 @@ class Heap {
 
   // Must be called if a field of an Object in the heap changes, and before any GC safe-point.
   // The call is not needed if NULL is stored in the field.
-  void WriteBarrierField(const mirror::Object* dst, MemberOffset /*offset*/,
-                         const mirror::Object* /*new_value*/) {
+  ALWAYS_INLINE void WriteBarrierField(const mirror::Object* dst, MemberOffset /*offset*/,
+                                       const mirror::Object* /*new_value*/) {
     card_table_->MarkCard(dst);
   }
 
   // Write barrier for array operations that update many field positions
-  void WriteBarrierArray(const mirror::Object* dst, int /*start_offset*/,
-                         size_t /*length TODO: element_count or byte_count?*/) {
+  ALWAYS_INLINE void WriteBarrierArray(const mirror::Object* dst, int /*start_offset*/,
+                                       size_t /*length TODO: element_count or byte_count?*/) {
     card_table_->MarkCard(dst);
   }
 
-  void WriteBarrierEveryFieldOf(const mirror::Object* obj) {
+  ALWAYS_INLINE void WriteBarrierEveryFieldOf(const mirror::Object* obj) {
     card_table_->MarkCard(obj);
   }
 
@@ -643,7 +643,7 @@ class Heap {
 
   // We don't force this to be inlined since it is a slow path.
   template <bool kInstrumented, typename PreFenceVisitor>
-  mirror::Object* AllocLargeObject(Thread* self, mirror::Class* klass, size_t byte_count,
+  mirror::Object* AllocLargeObject(Thread* self, mirror::Class** klass, size_t byte_count,
                                    const PreFenceVisitor& pre_fence_visitor)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
