@@ -23,8 +23,11 @@ QUIET="n"
 FLAGS=""
 COMPILER_FLAGS=""
 BUILD_BOOT_OPT=""
+SECONDARY_DEX=""
 exe="${ANDROID_HOST_OUT}/bin/dalvikvm32"
 main="Main"
+DEX_VERIFY=""
+DEX2OAT_SWAP="n"
 
 while true; do
     if [ "x$1" = "x--quiet" ]; then
@@ -91,6 +94,9 @@ while true; do
     elif [ "x$1" = "x--relocate" ]; then
         RELOCATE="y"
         shift
+    elif [ "x$1" = "x--secondary" ]; then
+        SECONDARY_DEX=":$DEX_LOCATION/$TEST_NAME-ex.jar"
+        shift
     elif [ "x$1" = "x-Xcompiler-option" ]; then
         shift
         option="$1"
@@ -101,6 +107,9 @@ while true; do
         shift
         option="$1"
         FLAGS="${FLAGS} $option"
+        shift
+    elif [ "x$1" = "x--dex2oat-swap" ]; then
+        DEX2OAT_SWAP="y"
         shift
     elif [ "x$1" = "x--" ]; then
         shift
@@ -132,6 +141,10 @@ export ANDROID_ROOT="${ANDROID_HOST_OUT}"
 export LD_LIBRARY_PATH="${ANDROID_ROOT}/lib"
 export DYLD_LIBRARY_PATH="${ANDROID_ROOT}/lib"
 
+if [ "$DEX2OAT_SWAP" = "y" ]; then
+  COMPILER_FLAGS="${COMPILER_FLAGS} --swap-file=$ANDROID_DATA/dex2oat.swap"
+fi
+
 if [ "$DEBUGGER" = "y" ]; then
     PORT=8000
     msg "Waiting for jdb to connect:"
@@ -154,7 +167,12 @@ fi
 
 if [ "$INTERPRETER" = "y" ]; then
     INT_OPTS="-Xint"
-    COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=interpret-only"
+    if [ "$VERIFY" = "y" ] ; then
+      COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=interpret-only"
+    else
+      COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=verify-none"
+      DEX_VERIFY="${DEX_VERIFY} -Xverify:none"
+    fi
 fi
 
 if [ "$RELOCATE" = "y" ]; then
@@ -180,7 +198,7 @@ else
 fi
 
 JNI_OPTS="-Xjnigreflimit:512 -Xcheck:jni"
-cmdline="$INVOKE_WITH $gdb $exe $gdbargs -XXlib:$LIB $JNI_OPTS $FLAGS $INT_OPTS $DEBUGGER_OPTS $BOOT_OPT -cp $DEX_LOCATION/$TEST_NAME.jar $main"
+cmdline="$INVOKE_WITH $gdb $exe $gdbargs -XXlib:$LIB $DEX_VERIFY $JNI_OPTS $FLAGS $INT_OPTS $DEBUGGER_OPTS $BOOT_OPT -cp $DEX_LOCATION/$TEST_NAME.jar$SECONDARY_DEX $main"
 if [ "$DEV_MODE" = "y" ]; then
   if [ "$PREBUILD" = "y" ]; then
     echo "$mkdir_cmd && $prebuild_cmd && $cmdline"
@@ -192,4 +210,4 @@ if [ "$DEV_MODE" = "y" ]; then
 fi
 
 cd $ANDROID_BUILD_TOP
-$mkdir_cmd && $prebuild_cmd && LD_PRELOAD=libsigchain.so $cmdline "$@"
+$mkdir_cmd && $prebuild_cmd && $cmdline "$@"

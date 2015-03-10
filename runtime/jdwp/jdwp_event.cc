@@ -125,6 +125,10 @@ struct ModBasket {
 };
 
 static bool NeedsFullDeoptimization(JdwpEventKind eventKind) {
+  if (!Dbg::RequiresDeoptimization()) {
+    // We don't need deoptimization for debugging.
+    return false;
+  }
   switch (eventKind) {
       case EK_METHOD_ENTRY:
       case EK_METHOD_EXIT:
@@ -181,8 +185,14 @@ JdwpError JdwpState::RegisterEvent(JdwpEvent* pEvent) {
     for (int i = 0; i < pEvent->modCount; i++) {
       const JdwpEventMod* pMod = &pEvent->mods[i];
       if (pMod->modKind == MK_LOCATION_ONLY) {
-        /* should only be for Breakpoint, Step, and Exception */
-        Dbg::WatchLocation(&pMod->locationOnly.loc, &req);
+        // Should only concern breakpoint, field access, field modification, step, and exception
+        // events.
+        // However breakpoint requires specific handling. Field access, field modification and step
+        // events need full deoptimization to be reported while exception event is reported during
+        // exception handling.
+        if (pEvent->eventKind == EK_BREAKPOINT) {
+          Dbg::WatchLocation(&pMod->locationOnly.loc, &req);
+        }
       } else if (pMod->modKind == MK_STEP) {
         /* should only be for EK_SINGLE_STEP; should only be one */
         JdwpStepSize size = static_cast<JdwpStepSize>(pMod->step.size);
@@ -258,8 +268,10 @@ void JdwpState::UnregisterEvent(JdwpEvent* pEvent) {
     for (int i = 0; i < pEvent->modCount; i++) {
       JdwpEventMod* pMod = &pEvent->mods[i];
       if (pMod->modKind == MK_LOCATION_ONLY) {
-        /* should only be for Breakpoint, Step, and Exception */
-        Dbg::UnwatchLocation(&pMod->locationOnly.loc, &req);
+        // Like in RegisterEvent, we need specific handling for breakpoint only.
+        if (pEvent->eventKind == EK_BREAKPOINT) {
+          Dbg::UnwatchLocation(&pMod->locationOnly.loc, &req);
+        }
       }
       if (pMod->modKind == MK_STEP) {
         /* should only be for EK_SINGLE_STEP; should only be one */

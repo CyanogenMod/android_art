@@ -17,6 +17,7 @@
 #include "image_space.h"
 
 #include <dirent.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 
 #include <random>
@@ -69,18 +70,20 @@ static int32_t ChooseRelocationOffsetDelta(int32_t min_delta, int32_t max_delta)
 }
 
 // We are relocating or generating the core image. We should get rid of everything. It is all
-// out-of-date. We also don't really care if this fails since it is just a convienence.
+// out-of-date. We also don't really care if this fails since it is just a convenience.
 // Adapted from prune_dex_cache(const char* subdir) in frameworks/native/cmds/installd/commands.c
 // Note this should only be used during first boot.
-static void RealPruneDexCache(const std::string& cache_dir_path);
-static void PruneDexCache(InstructionSet isa) {
+static void RealPruneDalvikCache(const std::string& cache_dir_path);
+
+static void PruneDalvikCache(InstructionSet isa) {
   CHECK_NE(isa, kNone);
-  // Prune the base /data/dalvik-cache
-  RealPruneDexCache(GetDalvikCacheOrDie(".", false));
-  // prune /data/dalvik-cache/<isa>
-  RealPruneDexCache(GetDalvikCacheOrDie(GetInstructionSetString(isa), false));
+  // Prune the base /data/dalvik-cache.
+  RealPruneDalvikCache(GetDalvikCacheOrDie(".", false));
+  // Prune /data/dalvik-cache/<isa>.
+  RealPruneDalvikCache(GetDalvikCacheOrDie(GetInstructionSetString(isa), false));
 }
-static void RealPruneDexCache(const std::string& cache_dir_path) {
+
+static void RealPruneDalvikCache(const std::string& cache_dir_path) {
   if (!OS::DirectoryExists(cache_dir_path.c_str())) {
     return;
   }
@@ -95,8 +98,8 @@ static void RealPruneDexCache(const std::string& cache_dir_path) {
     if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
       continue;
     }
-    // We only want to delete regular files.
-    if (de->d_type != DT_REG) {
+    // We only want to delete regular files and symbolic links.
+    if (de->d_type != DT_REG && de->d_type != DT_LNK) {
       if (de->d_type != DT_DIR) {
         // We do expect some directories (namely the <isa> for pruning the base dalvik-cache).
         LOG(WARNING) << "Unexpected file type of " << std::hex << de->d_type << " encountered.";
@@ -114,6 +117,28 @@ static void RealPruneDexCache(const std::string& cache_dir_path) {
   CHECK_EQ(0, TEMP_FAILURE_RETRY(closedir(cache_dir))) << "Unable to close directory.";
 }
 
+// We write out an empty file to the zygote's ISA specific cache dir at the start of
+// every zygote boot and delete it when the boot completes. If we find a file already
+// present, it usually means the boot didn't complete. We wipe the entire dalvik
+// cache if that's the case.
+static void MarkZygoteStart(const InstructionSet isa) {
+  const std::string isa_subdir = GetDalvikCacheOrDie(GetInstructionSetString(isa), false);
+  const std::string boot_marker = isa_subdir + "/.booting";
+
+  if (OS::FileExists(boot_marker.c_str())) {
+    LOG(WARNING) << "Incomplete boot detected. Pruning dalvik cache";
+    RealPruneDalvikCache(isa_subdir);
+  }
+
+  VLOG(startup) << "Creating boot start marker: " << boot_marker;
+  std::unique_ptr<File> f(OS::CreateEmptyFile(boot_marker.c_str()));
+  if (f.get() != nullptr) {
+    if (f->FlushCloseOrErase() != 0) {
+      PLOG(WARNING) << "Failed to write boot marker.";
+    }
+  }
+}
+
 static bool GenerateImage(const std::string& image_filename, InstructionSet image_isa,
                           std::string* error_msg) {
   const std::string boot_class_path_string(Runtime::Current()->GetBootClassPathString());
@@ -126,7 +151,7 @@ static bool GenerateImage(const std::string& image_filename, InstructionSet imag
   // We should clean up so we are more likely to have room for the image.
   if (Runtime::Current()->IsZygote()) {
     LOG(INFO) << "Pruning dalvik-cache since we are generating an image and will need to recompile";
-    PruneDexCache(image_isa);
+    PruneDalvikCache(image_isa);
   }
 
   std::vector<std::string> arg_vector;
@@ -228,7 +253,7 @@ static bool RelocateImage(const char* image_location, const char* dest_filename,
   // We should clean up so we are more likely to have room for the image.
   if (Runtime::Current()->IsZygote()) {
     LOG(INFO) << "Pruning dalvik-cache since we are relocating an image and will need to recompile";
-    PruneDexCache(isa);
+    PruneDalvikCache(isa);
   }
 
   std::string patchoat(Runtime::Current()->GetPatchoatExecutable());
@@ -375,6 +400,41 @@ static bool ImageCreationAllowed(bool is_global_cache, std::string* error_msg) {
   return false;
 }
 
+static constexpr uint64_t kLowSpaceValue = 50 * MB;
+static constexpr uint64_t kTmpFsSentinelValue = 384 * MB;
+
+// Read the free space of the cache partition and make a decision whether to keep the generated
+// image. This is to try to mitigate situations where the system might run out of space later.
+static bool CheckSpace(const std::string& cache_filename, std::string* error_msg) {
+  // Using statvfs vs statvfs64 because of b/18207376, and it is enough for all practical purposes.
+  struct statvfs buf;
+
+  int res = TEMP_FAILURE_RETRY(statvfs(cache_filename.c_str(), &buf));
+  if (res != 0) {
+    // Could not stat. Conservatively tell the system to delete the image.
+    *error_msg = "Could not stat the filesystem, assuming low-memory situation.";
+    return false;
+  }
+
+  uint64_t fs_overall_size = buf.f_bsize * static_cast<uint64_t>(buf.f_blocks);
+  // Zygote is privileged, but other things are not. Use bavail.
+  uint64_t fs_free_size = buf.f_bsize * static_cast<uint64_t>(buf.f_bavail);
+
+  // Take the overall size as an indicator for a tmpfs, which is being used for the decryption
+  // environment. We do not want to fail quickening the boot image there, as it is beneficial
+  // for time-to-UI.
+  if (fs_overall_size > kTmpFsSentinelValue) {
+    if (fs_free_size < kLowSpaceValue) {
+      *error_msg = StringPrintf("Low-memory situation: only %4.2f megabytes available after image"
+                                " generation, need at least %" PRIu64 ".",
+                                static_cast<double>(fs_free_size) / MB,
+                                kLowSpaceValue / MB);
+      return false;
+    }
+  }
+  return true;
+}
+
 ImageSpace* ImageSpace::Create(const char* image_location,
                                const InstructionSet image_isa,
                                std::string* error_msg) {
@@ -387,6 +447,10 @@ ImageSpace* ImageSpace::Create(const char* image_location,
   const bool found_image = FindImageFilename(image_location, image_isa, &system_filename,
                                              &has_system, &cache_filename, &dalvik_cache_exists,
                                              &has_cache, &is_global_cache);
+
+  if (Runtime::Current()->IsZygote()) {
+    MarkZygoteStart(image_isa);
+  }
 
   ImageSpace* space;
   bool relocate = Runtime::Current()->ShouldRelocate();
@@ -436,7 +500,7 @@ ImageSpace* ImageSpace::Create(const char* image_location,
             // Since ImageCreationAllowed was true above, we are the zygote
             // and therefore the only process expected to generate these for
             // the device.
-            PruneDexCache(image_isa);
+            PruneDalvikCache(image_isa);
             return nullptr;
           }
         }
@@ -491,7 +555,7 @@ ImageSpace* ImageSpace::Create(const char* image_location,
                                 "but image failed to load: %s",
                                 image_location, cache_filename.c_str(), system_filename.c_str(),
                                 error_msg->c_str());
-      PruneDexCache(image_isa);
+      PruneDalvikCache(image_isa);
       return nullptr;
     } else if (is_system) {
       // If the /system file exists, it should be up-to-date, don't try to generate it.
@@ -519,9 +583,16 @@ ImageSpace* ImageSpace::Create(const char* image_location,
     // Since ImageCreationAllowed was true above, we are the zygote
     // and therefore the only process expected to generate these for
     // the device.
-    PruneDexCache(image_isa);
+    PruneDalvikCache(image_isa);
     return nullptr;
   } else {
+    // Check whether there is enough space left over after we have generated the image.
+    if (!CheckSpace(cache_filename, error_msg)) {
+      // No. Delete the generated image and try to run out of the dex files.
+      PruneDalvikCache(image_isa);
+      return nullptr;
+    }
+
     // Note that we must not use the file descriptor associated with
     // ScopedFlock::GetFile to Init the image file. We want the file
     // descriptor (and the associated exclusive lock) to be released when
@@ -641,6 +712,9 @@ ImageSpace* ImageSpace::Init(const char* image_filename, const char* image_locat
   runtime->SetResolutionMethod(down_cast<mirror::ArtMethod*>(resolution_method));
   mirror::Object* imt_conflict_method = image_header.GetImageRoot(ImageHeader::kImtConflictMethod);
   runtime->SetImtConflictMethod(down_cast<mirror::ArtMethod*>(imt_conflict_method));
+  mirror::Object* imt_unimplemented_method =
+      image_header.GetImageRoot(ImageHeader::kImtUnimplementedMethod);
+  runtime->SetImtUnimplementedMethod(down_cast<mirror::ArtMethod*>(imt_unimplemented_method));
   mirror::Object* default_imt = image_header.GetImageRoot(ImageHeader::kDefaultImt);
   runtime->SetDefaultImt(down_cast<mirror::ObjectArray<mirror::ArtMethod>*>(default_imt));
 
@@ -665,7 +739,10 @@ OatFile* ImageSpace::OpenOatFile(const char* image_path, std::string* error_msg)
   const ImageHeader& image_header = GetImageHeader();
   std::string oat_filename = ImageHeader::GetOatLocationFromImageLocation(image_path);
 
+  CHECK(image_header.GetOatDataBegin() != nullptr);
+
   OatFile* oat_file = OatFile::Open(oat_filename, oat_filename, image_header.GetOatDataBegin(),
+                                    image_header.GetOatFileBegin(),
                                     !Runtime::Current()->IsCompiler(), error_msg);
   if (oat_file == NULL) {
     *error_msg = StringPrintf("Failed to open oat file '%s' referenced from image %s: %s",
@@ -681,7 +758,7 @@ OatFile* ImageSpace::OpenOatFile(const char* image_path, std::string* error_msg)
   }
   int32_t image_patch_delta = image_header.GetPatchDelta();
   int32_t oat_patch_delta = oat_file->GetOatHeader().GetImagePatchDelta();
-  if (oat_patch_delta != image_patch_delta) {
+  if (oat_patch_delta != image_patch_delta && !image_header.CompilePic()) {
     // We should have already relocated by this point. Bail out.
     *error_msg = StringPrintf("Failed to match oat file patch delta %d to expected patch delta %d "
                               "in image %s", oat_patch_delta, image_patch_delta, GetName());

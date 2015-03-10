@@ -34,6 +34,7 @@
 #include "monitor.h"
 #include "scoped_thread_state_change.h"
 #include "thread.h"
+#include "trace.h"
 #include "utils.h"
 #include "well_known_classes.h"
 
@@ -166,6 +167,8 @@ static void UnsafeLogFatalForThreadSuspendAllTimeout() {
   Runtime* runtime = Runtime::Current();
   std::ostringstream ss;
   ss << "Thread suspend timeout\n";
+  Locks::mutator_lock_->Dump(ss);
+  ss << "\n";
   runtime->GetThreadList()->DumpLocked(ss);
   LOG(FATAL) << ss.str();
   exit(0);
@@ -622,6 +625,7 @@ void ThreadList::SuspendAllForDebugger() {
     {
       MutexLock mu(self, *Locks::thread_suspend_count_lock_);
       // Update global suspend all state for attaching threads.
+      DCHECK_GE(suspend_all_count_, debug_suspend_all_count_);
       ++suspend_all_count_;
       ++debug_suspend_all_count_;
       // Increment everybody's suspend count (except our own).
@@ -711,6 +715,56 @@ void ThreadList::SuspendSelfForDebugger() {
   }
 
   VLOG(threads) << *self << " self-reviving (debugger)";
+}
+
+void ThreadList::ResumeAllForDebugger() {
+  Thread* self = Thread::Current();
+  Thread* debug_thread = Dbg::GetDebugThread();
+
+  VLOG(threads) << *self << " ResumeAllForDebugger starting...";
+
+  // Threads can't resume if we exclusively hold the mutator lock.
+  Locks::mutator_lock_->AssertNotExclusiveHeld(self);
+
+  {
+    MutexLock mu(self, *Locks::thread_list_lock_);
+    {
+      MutexLock mu(self, *Locks::thread_suspend_count_lock_);
+      // Update global suspend all state for attaching threads.
+      DCHECK_GE(suspend_all_count_, debug_suspend_all_count_);
+      if (debug_suspend_all_count_ > 0) {
+        --suspend_all_count_;
+        --debug_suspend_all_count_;
+      } else {
+        // We've been asked to resume all threads without being asked to
+        // suspend them all before. That may happen if a debugger tries
+        // to resume some suspended threads (with suspend count == 1)
+        // at once with a VirtualMachine.Resume command. Let's print a
+        // warning.
+        LOG(WARNING) << "Debugger attempted to resume all threads without "
+                     << "having suspended them all before.";
+      }
+      // Decrement everybody's suspend count (except our own).
+      for (const auto& thread : list_) {
+        if (thread == self || thread == debug_thread) {
+          continue;
+        }
+        if (thread->GetDebugSuspendCount() == 0) {
+          // This thread may have been individually resumed with ThreadReference.Resume.
+          continue;
+        }
+        VLOG(threads) << "requesting thread resume: " << *thread;
+        thread->ModifySuspendCount(self, -1, true);
+      }
+    }
+  }
+
+  {
+    MutexLock mu(self, *Locks::thread_suspend_count_lock_);
+    Thread::resume_cond_->Broadcast(self);
+  }
+
+  VLOG(threads) << *self << " ResumeAllForDebugger complete";
 }
 
 void ThreadList::UndoDebuggerSuspensions() {
@@ -836,6 +890,9 @@ void ThreadList::Unregister(Thread* self) {
   // suspend and so on, must happen at this point, and not in ~Thread.
   self->Destroy();
 
+  // If tracing, remember thread id and name before thread exits.
+  Trace::StoreExitingThreadInfo(self);
+
   uint32_t thin_lock_id = self->GetThreadId();
   while (self != nullptr) {
     // Remove and delete the Thread* while holding the thread_list_lock_ and
@@ -882,28 +939,6 @@ void ThreadList::VisitRoots(RootCallback* callback, void* arg) const {
   MutexLock mu(Thread::Current(), *Locks::thread_list_lock_);
   for (const auto& thread : list_) {
     thread->VisitRoots(callback, arg);
-  }
-}
-
-class VerifyRootWrapperArg {
- public:
-  VerifyRootWrapperArg(VerifyRootCallback* callback, void* arg) : callback_(callback), arg_(arg) {
-  }
-  VerifyRootCallback* const callback_;
-  void* const arg_;
-};
-
-static void VerifyRootWrapperCallback(mirror::Object** root, void* arg, uint32_t /*thread_id*/,
-                                      RootType root_type) {
-  VerifyRootWrapperArg* wrapperArg = reinterpret_cast<VerifyRootWrapperArg*>(arg);
-  wrapperArg->callback_(*root, wrapperArg->arg_, 0, NULL, root_type);
-}
-
-void ThreadList::VerifyRoots(VerifyRootCallback* callback, void* arg) const {
-  VerifyRootWrapperArg wrapper(callback, arg);
-  MutexLock mu(Thread::Current(), *Locks::thread_list_lock_);
-  for (const auto& thread : list_) {
-    thread->VisitRoots(VerifyRootWrapperCallback, &wrapper);
   }
 }
 

@@ -241,6 +241,7 @@ const DexFile* DexFile::OpenMemory(const std::string& location,
                     location,
                     location_checksum,
                     mem_map,
+                    nullptr,
                     error_msg);
 }
 
@@ -326,9 +327,12 @@ const DexFile* DexFile::OpenMemory(const byte* base,
                                    size_t size,
                                    const std::string& location,
                                    uint32_t location_checksum,
-                                   MemMap* mem_map, std::string* error_msg) {
+                                   MemMap* mem_map,
+                                   const OatFile* oat_file,
+                                   std::string* error_msg) {
   CHECK_ALIGNED(base, 4);  // various dex file structures must be word aligned
-  std::unique_ptr<DexFile> dex_file(new DexFile(base, size, location, location_checksum, mem_map));
+  std::unique_ptr<DexFile> dex_file(
+      new DexFile(base, size, location, location_checksum, mem_map, oat_file));
   if (!dex_file->Init(error_msg)) {
     return nullptr;
   } else {
@@ -339,7 +343,8 @@ const DexFile* DexFile::OpenMemory(const byte* base,
 DexFile::DexFile(const byte* base, size_t size,
                  const std::string& location,
                  uint32_t location_checksum,
-                 MemMap* mem_map)
+                 MemMap* mem_map,
+                 const OatFile* oat_file)
     : begin_(base),
       size_(size),
       location_(location),
@@ -354,7 +359,8 @@ DexFile::DexFile(const byte* base, size_t size,
       class_defs_(reinterpret_cast<const ClassDef*>(base + header_->class_defs_off_)),
       find_class_def_misses_(0),
       class_def_index_(nullptr),
-      build_class_def_index_mutex_("DexFile index creation mutex") {
+      build_class_def_index_mutex_("DexFile index creation mutex"),
+      oat_file_(oat_file) {
   CHECK(begin_ != NULL) << GetLocation();
   CHECK_GT(size_, 0U) << GetLocation();
 }
@@ -413,11 +419,12 @@ uint32_t DexFile::GetVersion() const {
   return atoi(version);
 }
 
-const DexFile::ClassDef* DexFile::FindClassDef(const char* descriptor) const {
+const DexFile::ClassDef* DexFile::FindClassDef(const char* descriptor, size_t hash) const {
+  DCHECK_EQ(ComputeModifiedUtf8Hash(descriptor), hash);
   // If we have an index lookup the descriptor via that as its constant time to search.
   Index* index = class_def_index_.LoadSequentiallyConsistent();
   if (index != nullptr) {
-    auto it = index->find(descriptor);
+    auto it = index->FindWithHash(descriptor, hash);
     return (it == index->end()) ? nullptr : it->second;
   }
   // Fast path for rate no class defs case.
@@ -449,11 +456,11 @@ const DexFile::ClassDef* DexFile::FindClassDef(const char* descriptor) const {
     MutexLock mu(Thread::Current(), build_class_def_index_mutex_);
     // Are we the first ones building the index?
     if (class_def_index_.LoadSequentiallyConsistent() == nullptr) {
-      index = new Index(num_class_defs);
+      index = new Index;
       for (uint32_t i = 0; i < num_class_defs;  ++i) {
         const ClassDef& class_def = GetClassDef(i);
         const char* descriptor = GetClassDescriptor(class_def);
-        index->insert(std::make_pair(descriptor, &class_def));
+        index->Insert(std::make_pair(descriptor, &class_def));
       }
       class_def_index_.StoreSequentiallyConsistent(index);
     }

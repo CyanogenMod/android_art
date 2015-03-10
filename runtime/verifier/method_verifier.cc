@@ -87,6 +87,23 @@ PcToRegisterLineTable::~PcToRegisterLineTable() {
   }
 }
 
+// Note: returns true on failure.
+ALWAYS_INLINE static inline bool FailOrAbort(MethodVerifier* verifier, bool condition,
+                                             const char* error_msg, uint32_t work_insn_idx) {
+  if (kIsDebugBuild) {
+    // In a debug build, abort if the error condition is wrong.
+    DCHECK(condition) << error_msg << work_insn_idx;
+  } else {
+    // In a non-debug build, just fail the class.
+    if (!condition) {
+      verifier->Fail(VERIFY_ERROR_BAD_CLASS_HARD) << error_msg << work_insn_idx;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 MethodVerifier::FailureKind MethodVerifier::VerifyClass(mirror::Class* klass,
                                                         bool allow_soft_failures,
                                                         std::string* error) {
@@ -506,9 +523,9 @@ std::ostream& MethodVerifier::Fail(VerifyError error) {
     }
   }
   failures_.push_back(error);
-  std::string location(StringPrintf("%s: [0x%X]", PrettyMethod(dex_method_idx_, *dex_file_).c_str(),
+  std::string location(StringPrintf("%s: [0x%X] ", PrettyMethod(dex_method_idx_, *dex_file_).c_str(),
                                     work_insn_idx_));
-  std::ostringstream* failure_message = new std::ostringstream(location);
+  std::ostringstream* failure_message = new std::ostringstream(location, std::ostringstream::ate);
   failure_messages_.push_back(failure_message);
   return *failure_message;
 }
@@ -523,7 +540,7 @@ void MethodVerifier::PrependToLastFailMessage(std::string prepend) {
   DCHECK_NE(failure_num, 0U);
   std::ostringstream* last_fail_message = failure_messages_[failure_num - 1];
   prepend += last_fail_message->str();
-  failure_messages_[failure_num - 1] = new std::ostringstream(prepend);
+  failure_messages_[failure_num - 1] = new std::ostringstream(prepend, std::ostringstream::ate);
   delete last_fail_message;
 }
 
@@ -1538,6 +1555,12 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
       break;
 
     case Instruction::MOVE_EXCEPTION: {
+      // We do not allow MOVE_EXCEPTION as the first instruction in a method. This is a simple case
+      // where one entrypoint to the catch block is not actually an exception path.
+      if (work_insn_idx_ == 0) {
+        Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "move-exception at pc 0x0";
+        break;
+      }
       /*
        * This statement can only appear as the first instruction in an exception handler. We verify
        * that as part of extracting the exception type from the catch block list.
@@ -1951,7 +1974,11 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
         while (0 != instance_of_idx && !insn_flags_[instance_of_idx].IsOpcode()) {
           instance_of_idx--;
         }
-        CHECK(insn_flags_[instance_of_idx].IsOpcode());
+        if (FailOrAbort(this, insn_flags_[instance_of_idx].IsOpcode(),
+                        "Unable to get previous instruction of if-eqz/if-nez for work index ",
+                        work_insn_idx_)) {
+          break;
+        }
       } else {
         break;
       }
@@ -2009,7 +2036,11 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
             while (0 != move_idx && !insn_flags_[move_idx].IsOpcode()) {
               move_idx--;
             }
-            CHECK(insn_flags_[move_idx].IsOpcode());
+            if (FailOrAbort(this, insn_flags_[move_idx].IsOpcode(),
+                            "Unable to get previous instruction of if-eqz/if-nez for work index ",
+                            work_insn_idx_)) {
+              break;
+            }
             const Instruction* move_inst = Instruction::At(code_item_->insns_ + move_idx);
             switch (move_inst->Opcode()) {
               case Instruction::MOVE_OBJECT:
@@ -2092,91 +2123,95 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
       break;
 
     case Instruction::IGET_BOOLEAN:
-      VerifyISGet(inst, reg_types_.Boolean(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Boolean(), true, false);
       break;
     case Instruction::IGET_BYTE:
-      VerifyISGet(inst, reg_types_.Byte(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Byte(), true, false);
       break;
     case Instruction::IGET_CHAR:
-      VerifyISGet(inst, reg_types_.Char(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Char(), true, false);
       break;
     case Instruction::IGET_SHORT:
-      VerifyISGet(inst, reg_types_.Short(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Short(), true, false);
       break;
     case Instruction::IGET:
-      VerifyISGet(inst, reg_types_.Integer(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Integer(), true, false);
       break;
     case Instruction::IGET_WIDE:
-      VerifyISGet(inst, reg_types_.LongLo(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.LongLo(), true, false);
       break;
     case Instruction::IGET_OBJECT:
-      VerifyISGet(inst, reg_types_.JavaLangObject(false), false, false);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.JavaLangObject(false), false,
+                                                    false);
       break;
 
     case Instruction::IPUT_BOOLEAN:
-      VerifyISPut(inst, reg_types_.Boolean(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Boolean(), true, false);
       break;
     case Instruction::IPUT_BYTE:
-      VerifyISPut(inst, reg_types_.Byte(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Byte(), true, false);
       break;
     case Instruction::IPUT_CHAR:
-      VerifyISPut(inst, reg_types_.Char(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Char(), true, false);
       break;
     case Instruction::IPUT_SHORT:
-      VerifyISPut(inst, reg_types_.Short(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Short(), true, false);
       break;
     case Instruction::IPUT:
-      VerifyISPut(inst, reg_types_.Integer(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Integer(), true, false);
       break;
     case Instruction::IPUT_WIDE:
-      VerifyISPut(inst, reg_types_.LongLo(), true, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.LongLo(), true, false);
       break;
     case Instruction::IPUT_OBJECT:
-      VerifyISPut(inst, reg_types_.JavaLangObject(false), false, false);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.JavaLangObject(false), false,
+                                                    false);
       break;
 
     case Instruction::SGET_BOOLEAN:
-      VerifyISGet(inst, reg_types_.Boolean(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Boolean(), true, true);
       break;
     case Instruction::SGET_BYTE:
-      VerifyISGet(inst, reg_types_.Byte(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Byte(), true, true);
       break;
     case Instruction::SGET_CHAR:
-      VerifyISGet(inst, reg_types_.Char(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Char(), true, true);
       break;
     case Instruction::SGET_SHORT:
-      VerifyISGet(inst, reg_types_.Short(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Short(), true, true);
       break;
     case Instruction::SGET:
-      VerifyISGet(inst, reg_types_.Integer(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Integer(), true, true);
       break;
     case Instruction::SGET_WIDE:
-      VerifyISGet(inst, reg_types_.LongLo(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.LongLo(), true, true);
       break;
     case Instruction::SGET_OBJECT:
-      VerifyISGet(inst, reg_types_.JavaLangObject(false), false, true);
+      VerifyISFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.JavaLangObject(false), false,
+                                                    true);
       break;
 
     case Instruction::SPUT_BOOLEAN:
-      VerifyISPut(inst, reg_types_.Boolean(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Boolean(), true, true);
       break;
     case Instruction::SPUT_BYTE:
-      VerifyISPut(inst, reg_types_.Byte(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Byte(), true, true);
       break;
     case Instruction::SPUT_CHAR:
-      VerifyISPut(inst, reg_types_.Char(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Char(), true, true);
       break;
     case Instruction::SPUT_SHORT:
-      VerifyISPut(inst, reg_types_.Short(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Short(), true, true);
       break;
     case Instruction::SPUT:
-      VerifyISPut(inst, reg_types_.Integer(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Integer(), true, true);
       break;
     case Instruction::SPUT_WIDE:
-      VerifyISPut(inst, reg_types_.LongLo(), true, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.LongLo(), true, true);
       break;
     case Instruction::SPUT_OBJECT:
-      VerifyISPut(inst, reg_types_.JavaLangObject(false), false, true);
+      VerifyISFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.JavaLangObject(false), false,
+                                                    true);
       break;
 
     case Instruction::INVOKE_VIRTUAL:
@@ -2620,22 +2655,22 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
     // As such they use Class*/Field*/AbstractMethod* as these offsets only have
     // meaning if the class linking and resolution were successful.
     case Instruction::IGET_QUICK:
-      VerifyIGetQuick(inst, reg_types_.Integer(), true);
+      VerifyQuickFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.Integer(), true);
       break;
     case Instruction::IGET_WIDE_QUICK:
-      VerifyIGetQuick(inst, reg_types_.LongLo(), true);
+      VerifyQuickFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.LongLo(), true);
       break;
     case Instruction::IGET_OBJECT_QUICK:
-      VerifyIGetQuick(inst, reg_types_.JavaLangObject(false), false);
+      VerifyQuickFieldAccess<FieldAccessType::kAccGet>(inst, reg_types_.JavaLangObject(false), false);
       break;
     case Instruction::IPUT_QUICK:
-      VerifyIPutQuick(inst, reg_types_.Integer(), true);
+      VerifyQuickFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.Integer(), true);
       break;
     case Instruction::IPUT_WIDE_QUICK:
-      VerifyIPutQuick(inst, reg_types_.LongLo(), true);
+      VerifyQuickFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.LongLo(), true);
       break;
     case Instruction::IPUT_OBJECT_QUICK:
-      VerifyIPutQuick(inst, reg_types_.JavaLangObject(false), false);
+      VerifyQuickFieldAccess<FieldAccessType::kAccPut>(inst, reg_types_.JavaLangObject(false), false);
       break;
     case Instruction::INVOKE_VIRTUAL_QUICK:
     case Instruction::INVOKE_VIRTUAL_RANGE_QUICK: {
@@ -2982,7 +3017,12 @@ RegType& MethodVerifier::GetCaughtExceptionType() {
               // odd case, but nothing to do
             } else {
               common_super = &common_super->Merge(exception, &reg_types_);
-              CHECK(reg_types_.JavaLangThrowable(false).IsAssignableFrom(*common_super));
+              if (FailOrAbort(this,
+                              reg_types_.JavaLangThrowable(false).IsAssignableFrom(*common_super),
+                              "java.lang.Throwable is not assignable-from common_super at ",
+                              work_insn_idx_)) {
+                break;
+              }
             }
           }
         }
@@ -3079,7 +3119,7 @@ mirror::ArtMethod* MethodVerifier::ResolveMethodAndCheckAccess(uint32_t dex_meth
   }
   // See if the method type implied by the invoke instruction matches the access flags for the
   // target method.
-  if ((method_type == METHOD_DIRECT && !res_method->IsDirect()) ||
+  if ((method_type == METHOD_DIRECT && (!res_method->IsDirect() || res_method->IsStatic())) ||
       (method_type == METHOD_STATIC && !res_method->IsStatic()) ||
       ((method_type == METHOD_VIRTUAL || method_type == METHOD_INTERFACE) && res_method->IsDirect())
       ) {
@@ -3308,17 +3348,32 @@ mirror::ArtMethod* MethodVerifier::GetQuickInvokedMethod(const Instruction* inst
   if (klass->IsInterface()) {
     // Derive Object.class from Class.class.getSuperclass().
     mirror::Class* object_klass = klass->GetClass()->GetSuperClass();
-    CHECK(object_klass->IsObjectClass());
+    if (FailOrAbort(this, object_klass->IsObjectClass(),
+                    "Failed to find Object class in quickened invoke receiver",
+                    work_insn_idx_)) {
+      return nullptr;
+    }
     dispatch_class = object_klass;
   } else {
     dispatch_class = klass;
   }
-  CHECK(dispatch_class->HasVTable()) << PrettyDescriptor(dispatch_class);
+  if (FailOrAbort(this, dispatch_class->HasVTable(),
+                  "Receiver class has no vtable for quickened invoke at ",
+                  work_insn_idx_)) {
+    return nullptr;
+  }
   uint16_t vtable_index = is_range ? inst->VRegB_3rc() : inst->VRegB_35c();
-  CHECK_LT(static_cast<int32_t>(vtable_index), dispatch_class->GetVTableLength())
-      << PrettyDescriptor(klass);
+  if (FailOrAbort(this, static_cast<int32_t>(vtable_index) < dispatch_class->GetVTableLength(),
+                  "Receiver class has not enough vtable slots for quickened invoke at ",
+                  work_insn_idx_)) {
+    return nullptr;
+  }
   mirror::ArtMethod* res_method = dispatch_class->GetVTableEntry(vtable_index);
-  CHECK(!Thread::Current()->IsExceptionPending());
+  if (FailOrAbort(this, !Thread::Current()->IsExceptionPending(),
+                  "Unexpected exception pending for quickened invoke at ",
+                  work_insn_idx_)) {
+    return nullptr;
+  }
   return res_method;
 }
 
@@ -3331,7 +3386,14 @@ mirror::ArtMethod* MethodVerifier::VerifyInvokeVirtualQuickArgs(const Instructio
     Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "Cannot infer method from " << inst->Name();
     return nullptr;
   }
-  CHECK(!res_method->IsDirect() && !res_method->IsStatic());
+  if (FailOrAbort(this, !res_method->IsDirect(), "Quick-invoked method is direct at ",
+                  work_insn_idx_)) {
+    return nullptr;
+  }
+  if (FailOrAbort(this, !res_method->IsStatic(), "Quick-invoked method is static at ",
+                  work_insn_idx_)) {
+    return nullptr;
+  }
 
   // We use vAA as our expected arg count, rather than res_method->insSize, because we need to
   // match the call to the signature. Also, we might be calling through an abstract method
@@ -3695,8 +3757,9 @@ mirror::ArtField* MethodVerifier::GetInstanceField(RegType& obj_type, int field_
   }
 }
 
-void MethodVerifier::VerifyISGet(const Instruction* inst, RegType& insn_type,
-                                 bool is_primitive, bool is_static) {
+template <MethodVerifier::FieldAccessType kAccType>
+void MethodVerifier::VerifyISFieldAccess(const Instruction* inst, RegType& insn_type,
+                                         bool is_primitive, bool is_static) {
   uint32_t field_idx = is_static ? inst->VRegB_21c() : inst->VRegC_22c();
   mirror::ArtField* field;
   if (is_static) {
@@ -3704,9 +3767,20 @@ void MethodVerifier::VerifyISGet(const Instruction* inst, RegType& insn_type,
   } else {
     RegType& object_type = work_line_->GetRegisterType(inst->VRegB_22c());
     field = GetInstanceField(object_type, field_idx);
+    if (UNLIKELY(have_pending_hard_failure_)) {
+      return;
+    }
   }
   RegType* field_type = nullptr;
   if (field != nullptr) {
+    if (kAccType == FieldAccessType::kAccPut) {
+      if (field->IsFinal() && field->GetDeclaringClass() != GetDeclaringClass().GetClass()) {
+        Fail(VERIFY_ERROR_ACCESS_FIELD) << "cannot modify final field " << PrettyField(field)
+                                        << " from other class " << GetDeclaringClass();
+        return;
+      }
+    }
+
     Thread* self = Thread::Current();
     mirror::Class* field_type_class;
     {
@@ -3729,89 +3803,56 @@ void MethodVerifier::VerifyISGet(const Instruction* inst, RegType& insn_type,
   }
   DCHECK(field_type != nullptr);
   const uint32_t vregA = (is_static) ? inst->VRegA_21c() : inst->VRegA_22c();
-  if (is_primitive) {
-    if (field_type->Equals(insn_type) ||
-        (field_type->IsFloat() && insn_type.IsInteger()) ||
-        (field_type->IsDouble() && insn_type.IsLong())) {
-      // expected that read is of the correct primitive type or that int reads are reading
-      // floats or long reads are reading doubles
+  static_assert(kAccType == FieldAccessType::kAccPut || kAccType == FieldAccessType::kAccGet,
+                "Unexpected third access type");
+  if (kAccType == FieldAccessType::kAccPut) {
+    // sput or iput.
+    if (is_primitive) {
+      VerifyPrimitivePut(*field_type, insn_type, vregA);
     } else {
-      // This is a global failure rather than a class change failure as the instructions and
-      // the descriptors for the type should have been consistent within the same file at
-      // compile time
-      Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
-                                        << " to be of type '" << insn_type
-                                        << "' but found type '" << *field_type << "' in get";
-      return;
+      if (!insn_type.IsAssignableFrom(*field_type)) {
+        Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
+                                                << " to be compatible with type '" << insn_type
+                                                << "' but found type '" << *field_type
+                                                << "' in put-object";
+        return;
+      }
+      work_line_->VerifyRegisterType(vregA, *field_type);
     }
-  } else {
-    if (!insn_type.IsAssignableFrom(*field_type)) {
-      Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
-                                        << " to be compatible with type '" << insn_type
-                                        << "' but found type '" << *field_type
-                                        << "' in Get-object";
-      work_line_->SetRegisterType(vregA, reg_types_.Conflict());
-      return;
-    }
-  }
-  if (!field_type->IsLowHalf()) {
-    work_line_->SetRegisterType(vregA, *field_type);
-  } else {
-    work_line_->SetRegisterTypeWide(vregA, *field_type, field_type->HighHalf(&reg_types_));
-  }
-}
-
-void MethodVerifier::VerifyISPut(const Instruction* inst, RegType& insn_type,
-                                 bool is_primitive, bool is_static) {
-  uint32_t field_idx = is_static ? inst->VRegB_21c() : inst->VRegC_22c();
-  mirror::ArtField* field;
-  if (is_static) {
-    field = GetStaticField(field_idx);
-  } else {
-    RegType& object_type = work_line_->GetRegisterType(inst->VRegB_22c());
-    field = GetInstanceField(object_type, field_idx);
-  }
-  RegType* field_type = nullptr;
-  if (field != nullptr) {
-    if (field->IsFinal() && field->GetDeclaringClass() != GetDeclaringClass().GetClass()) {
-      Fail(VERIFY_ERROR_ACCESS_FIELD) << "cannot modify final field " << PrettyField(field)
-                                      << " from other class " << GetDeclaringClass();
-      return;
-    }
-    mirror::Class* field_type_class;
-    {
-      StackHandleScope<1> hs(Thread::Current());
-      HandleWrapper<mirror::ArtField> h_field(hs.NewHandleWrapper(&field));
-      FieldHelper fh(h_field);
-      field_type_class = fh.GetType(can_load_classes_);
-    }
-    if (field_type_class != nullptr) {
-      field_type = &reg_types_.FromClass(field->GetTypeDescriptor(), field_type_class,
-                                         field_type_class->CannotBeAssignedFromOtherTypes());
+  } else if (kAccType == FieldAccessType::kAccGet) {
+    // sget or iget.
+    if (is_primitive) {
+      if (field_type->Equals(insn_type) ||
+          (field_type->IsFloat() && insn_type.IsInteger()) ||
+          (field_type->IsDouble() && insn_type.IsLong())) {
+        // expected that read is of the correct primitive type or that int reads are reading
+        // floats or long reads are reading doubles
+      } else {
+        // This is a global failure rather than a class change failure as the instructions and
+        // the descriptors for the type should have been consistent within the same file at
+        // compile time
+        Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
+                                          << " to be of type '" << insn_type
+                                          << "' but found type '" << *field_type << "' in get";
+        return;
+      }
     } else {
-      Thread* self = Thread::Current();
-      DCHECK(!can_load_classes_ || self->IsExceptionPending());
-      self->ClearException();
+      if (!insn_type.IsAssignableFrom(*field_type)) {
+        Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
+                                          << " to be compatible with type '" << insn_type
+                                          << "' but found type '" << *field_type
+                                          << "' in get-object";
+        work_line_->SetRegisterType(vregA, reg_types_.Conflict());
+        return;
+      }
     }
-  }
-  if (field_type == nullptr) {
-    const DexFile::FieldId& field_id = dex_file_->GetFieldId(field_idx);
-    const char* descriptor = dex_file_->GetFieldTypeDescriptor(field_id);
-    field_type = &reg_types_.FromDescriptor(class_loader_->Get(), descriptor, false);
-  }
-  DCHECK(field_type != nullptr);
-  const uint32_t vregA = (is_static) ? inst->VRegA_21c() : inst->VRegA_22c();
-  if (is_primitive) {
-    VerifyPrimitivePut(*field_type, insn_type, vregA);
+    if (!field_type->IsLowHalf()) {
+      work_line_->SetRegisterType(vregA, *field_type);
+    } else {
+      work_line_->SetRegisterTypeWide(vregA, *field_type, field_type->HighHalf(&reg_types_));
+    }
   } else {
-    if (!insn_type.IsAssignableFrom(*field_type)) {
-      Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
-                                        << " to be compatible with type '" << insn_type
-                                        << "' but found type '" << *field_type
-                                        << "' in put-object";
-      return;
-    }
-    work_line_->VerifyRegisterType(vregA, *field_type);
+    LOG(FATAL) << "Unexpected case.";
   }
 }
 
@@ -3838,132 +3879,137 @@ mirror::ArtField* MethodVerifier::GetQuickFieldAccess(const Instruction* inst,
   return f;
 }
 
-void MethodVerifier::VerifyIGetQuick(const Instruction* inst, RegType& insn_type,
-                                     bool is_primitive) {
+template <MethodVerifier::FieldAccessType kAccType>
+void MethodVerifier::VerifyQuickFieldAccess(const Instruction* inst, RegType& insn_type,
+                                            bool is_primitive) {
   DCHECK(Runtime::Current()->IsStarted() || verify_to_dump_);
-  mirror::ArtField* field = GetQuickFieldAccess(inst, work_line_.get());
-  if (field == nullptr) {
-    Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "Cannot infer field from " << inst->Name();
-    return;
-  }
-  mirror::Class* field_type_class;
-  {
-    StackHandleScope<1> hs(Thread::Current());
-    HandleWrapper<mirror::ArtField> h_field(hs.NewHandleWrapper(&field));
-    FieldHelper fh(h_field);
-    field_type_class = fh.GetType(can_load_classes_);
-  }
-  RegType* field_type;
-  if (field_type_class != nullptr) {
-    field_type = &reg_types_.FromClass(field->GetTypeDescriptor(), field_type_class,
-                                       field_type_class->CannotBeAssignedFromOtherTypes());
-  } else {
-    Thread* self = Thread::Current();
-    DCHECK(!can_load_classes_ || self->IsExceptionPending());
-    self->ClearException();
-    field_type = &reg_types_.FromDescriptor(field->GetDeclaringClass()->GetClassLoader(),
-                                            field->GetTypeDescriptor(), false);
-  }
-  DCHECK(field_type != nullptr);
-  const uint32_t vregA = inst->VRegA_22c();
-  if (is_primitive) {
-    if (field_type->Equals(insn_type) ||
-        (field_type->IsFloat() && insn_type.IsIntegralTypes()) ||
-        (field_type->IsDouble() && insn_type.IsLongTypes())) {
-      // expected that read is of the correct primitive type or that int reads are reading
-      // floats or long reads are reading doubles
-    } else {
-      // This is a global failure rather than a class change failure as the instructions and
-      // the descriptors for the type should have been consistent within the same file at
-      // compile time
-      Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
-                                        << " to be of type '" << insn_type
-                                        << "' but found type '" << *field_type << "' in Get";
-      return;
-    }
-  } else {
-    if (!insn_type.IsAssignableFrom(*field_type)) {
-      Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
-                                        << " to be compatible with type '" << insn_type
-                                        << "' but found type '" << *field_type
-                                        << "' in get-object";
-      work_line_->SetRegisterType(vregA, reg_types_.Conflict());
-      return;
-    }
-  }
-  if (!field_type->IsLowHalf()) {
-    work_line_->SetRegisterType(vregA, *field_type);
-  } else {
-    work_line_->SetRegisterTypeWide(vregA, *field_type, field_type->HighHalf(&reg_types_));
-  }
-}
 
-void MethodVerifier::VerifyIPutQuick(const Instruction* inst, RegType& insn_type,
-                                     bool is_primitive) {
-  DCHECK(Runtime::Current()->IsStarted() || verify_to_dump_);
   mirror::ArtField* field = GetQuickFieldAccess(inst, work_line_.get());
   if (field == nullptr) {
     Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "Cannot infer field from " << inst->Name();
     return;
   }
-  const char* descriptor = field->GetTypeDescriptor();
-  mirror::ClassLoader* loader = field->GetDeclaringClass()->GetClassLoader();
-  RegType& field_type = reg_types_.FromDescriptor(loader, descriptor, false);
-  if (field != nullptr) {
+
+  // For an IPUT_QUICK, we now test for final flag of the field.
+  if (kAccType == FieldAccessType::kAccPut) {
     if (field->IsFinal() && field->GetDeclaringClass() != GetDeclaringClass().GetClass()) {
       Fail(VERIFY_ERROR_ACCESS_FIELD) << "cannot modify final field " << PrettyField(field)
                                       << " from other class " << GetDeclaringClass();
       return;
     }
   }
-  const uint32_t vregA = inst->VRegA_22c();
-  if (is_primitive) {
-    // Primitive field assignability rules are weaker than regular assignability rules
-    bool instruction_compatible;
-    bool value_compatible;
-    RegType& value_type = work_line_->GetRegisterType(vregA);
-    if (field_type.IsIntegralTypes()) {
-      instruction_compatible = insn_type.IsIntegralTypes();
-      value_compatible = value_type.IsIntegralTypes();
-    } else if (field_type.IsFloat()) {
-      instruction_compatible = insn_type.IsInteger();  // no [is]put-float, so expect [is]put-int
-      value_compatible = value_type.IsFloatTypes();
-    } else if (field_type.IsLong()) {
-      instruction_compatible = insn_type.IsLong();
-      value_compatible = value_type.IsLongTypes();
-    } else if (field_type.IsDouble()) {
-      instruction_compatible = insn_type.IsLong();  // no [is]put-double, so expect [is]put-long
-      value_compatible = value_type.IsDoubleTypes();
+
+  // Get the field type.
+  RegType* field_type;
+  {
+    mirror::Class* field_type_class;
+    {
+      StackHandleScope<1> hs(Thread::Current());
+      HandleWrapper<mirror::ArtField> h_field(hs.NewHandleWrapper(&field));
+      field_type_class = FieldHelper(h_field).GetType(can_load_classes_);
+    }
+
+    if (field_type_class != nullptr) {
+      field_type = &reg_types_.FromClass(field->GetTypeDescriptor(), field_type_class,
+                                         field_type_class->CannotBeAssignedFromOtherTypes());
     } else {
-      instruction_compatible = false;  // reference field with primitive store
-      value_compatible = false;  // unused
+      Thread* self = Thread::Current();
+      DCHECK(!can_load_classes_ || self->IsExceptionPending());
+      self->ClearException();
+      field_type = &reg_types_.FromDescriptor(field->GetDeclaringClass()->GetClassLoader(),
+                                              field->GetTypeDescriptor(), false);
     }
-    if (!instruction_compatible) {
-      // This is a global failure rather than a class change failure as the instructions and
-      // the descriptors for the type should have been consistent within the same file at
-      // compile time
-      Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
-                                        << " to be of type '" << insn_type
-                                        << "' but found type '" << field_type
-                                        << "' in put";
+    if (field_type == nullptr) {
+      Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "Cannot infer field type from " << inst->Name();
       return;
     }
-    if (!value_compatible) {
-      Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "unexpected value in v" << vregA
-          << " of type " << value_type
-          << " but expected " << field_type
-          << " for store to " << PrettyField(field) << " in put";
-      return;
+  }
+
+  const uint32_t vregA = inst->VRegA_22c();
+  static_assert(kAccType == FieldAccessType::kAccPut || kAccType == FieldAccessType::kAccGet,
+                "Unexpected third access type");
+  if (kAccType == FieldAccessType::kAccPut) {
+    if (is_primitive) {
+      // Primitive field assignability rules are weaker than regular assignability rules
+      bool instruction_compatible;
+      bool value_compatible;
+      RegType& value_type = work_line_->GetRegisterType(vregA);
+      if (field_type->IsIntegralTypes()) {
+        instruction_compatible = insn_type.IsIntegralTypes();
+        value_compatible = value_type.IsIntegralTypes();
+      } else if (field_type->IsFloat()) {
+        instruction_compatible = insn_type.IsInteger();  // no [is]put-float, so expect [is]put-int
+        value_compatible = value_type.IsFloatTypes();
+      } else if (field_type->IsLong()) {
+        instruction_compatible = insn_type.IsLong();
+        value_compatible = value_type.IsLongTypes();
+      } else if (field_type->IsDouble()) {
+        instruction_compatible = insn_type.IsLong();  // no [is]put-double, so expect [is]put-long
+        value_compatible = value_type.IsDoubleTypes();
+      } else {
+        instruction_compatible = false;  // reference field with primitive store
+        value_compatible = false;  // unused
+      }
+      if (!instruction_compatible) {
+        // This is a global failure rather than a class change failure as the instructions and
+        // the descriptors for the type should have been consistent within the same file at
+        // compile time
+        Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
+                                          << " to be of type '" << insn_type
+                                          << "' but found type '" << *field_type
+                                          << "' in put";
+        return;
+      }
+      if (!value_compatible) {
+        Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "unexpected value in v" << vregA
+            << " of type " << value_type
+            << " but expected " << *field_type
+            << " for store to " << PrettyField(field) << " in put";
+        return;
+      }
+    } else {
+      if (!insn_type.IsAssignableFrom(*field_type)) {
+        Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
+                                          << " to be compatible with type '" << insn_type
+                                          << "' but found type '" << *field_type
+                                          << "' in put-object";
+        return;
+      }
+      work_line_->VerifyRegisterType(vregA, *field_type);
+    }
+  } else if (kAccType == FieldAccessType::kAccGet) {
+    if (is_primitive) {
+      if (field_type->Equals(insn_type) ||
+          (field_type->IsFloat() && insn_type.IsIntegralTypes()) ||
+          (field_type->IsDouble() && insn_type.IsLongTypes())) {
+        // expected that read is of the correct primitive type or that int reads are reading
+        // floats or long reads are reading doubles
+      } else {
+        // This is a global failure rather than a class change failure as the instructions and
+        // the descriptors for the type should have been consistent within the same file at
+        // compile time
+        Fail(VERIFY_ERROR_BAD_CLASS_HARD) << "expected field " << PrettyField(field)
+                                          << " to be of type '" << insn_type
+                                          << "' but found type '" << *field_type << "' in Get";
+        return;
+      }
+    } else {
+      if (!insn_type.IsAssignableFrom(*field_type)) {
+        Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
+                                          << " to be compatible with type '" << insn_type
+                                          << "' but found type '" << *field_type
+                                          << "' in get-object";
+        work_line_->SetRegisterType(vregA, reg_types_.Conflict());
+        return;
+      }
+    }
+    if (!field_type->IsLowHalf()) {
+      work_line_->SetRegisterType(vregA, *field_type);
+    } else {
+      work_line_->SetRegisterTypeWide(vregA, *field_type, field_type->HighHalf(&reg_types_));
     }
   } else {
-    if (!insn_type.IsAssignableFrom(field_type)) {
-      Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "expected field " << PrettyField(field)
-                                        << " to be compatible with type '" << insn_type
-                                        << "' but found type '" << field_type
-                                        << "' in put-object";
-      return;
-    }
-    work_line_->VerifyRegisterType(vregA, field_type);
+    LOG(FATAL) << "Unexpected case.";
   }
 }
 

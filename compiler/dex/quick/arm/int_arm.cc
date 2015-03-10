@@ -550,6 +550,14 @@ bool ArmMir2Lir::SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div
 
 // Try to convert *lit to 1 RegRegRegShift/RegRegShift form.
 bool ArmMir2Lir::GetEasyMultiplyOp(int lit, ArmMir2Lir::EasyMultiplyOp* op) {
+  if (lit == 0) {
+    // Special case for *divide-by-zero*. The ops won't actually be used to generate code, as
+    // GenArithOpIntLit will directly generate exception-throwing code, and multiply-by-zero will
+    // have been optimized away earlier.
+    op->op = kOpInvalid;
+    return true;
+  }
+
   if (IsPowerOfTwo(lit)) {
     op->op = kOpLsl;
     op->shift = LowestSetBit(lit);
@@ -1141,6 +1149,7 @@ void ArmMir2Lir::GenNegLong(RegLocation rl_dest, RegLocation rl_src) {
   // Check for destructive overlap
   if (rl_result.reg.GetLowReg() == rl_src.reg.GetHighReg()) {
     RegStorage t_reg = AllocTemp();
+    OpRegCopy(t_reg, rl_result.reg.GetLow());
     OpRegRegReg(kOpSub, rl_result.reg.GetLow(), z_reg, rl_src.reg.GetLow());
     OpRegRegReg(kOpSbc, rl_result.reg.GetHigh(), z_reg, t_reg);
     FreeTemp(t_reg);

@@ -509,6 +509,20 @@ void Mir2Lir::InstallLiteralPools() {
     PushPointer(code_buffer_, &target_method_id, cu_->target64);
     data_lir = NEXT_LIR(data_lir);
   }
+  // Push the string literals.
+  data_lir = string_literal_list_;
+  while (data_lir != nullptr) {
+    uint32_t string_idx = data_lir->operands[0];
+    cu_->compiler_driver->AddStringPatch(cu_->dex_file,
+                                         cu_->class_def_idx,
+                                         cu_->method_idx,
+                                         string_idx,
+                                         code_buffer_.size());
+    const auto& target_string_id = cu_->dex_file->GetStringId(string_idx);
+    // unique value based on target to ensure code deduplication works
+    PushPointer(code_buffer_, &target_string_id, cu_->target64);
+    data_lir = NEXT_LIR(data_lir);
+  }
 }
 
 /* Write the switch tables to the output stream */
@@ -759,6 +773,10 @@ void Mir2Lir::CreateNativeGcMap() {
         ": " << PrettyMethod(cu_->method_idx, *cu_->dex_file);
     native_gc_map_builder.AddEntry(native_offset, references);
   }
+
+  // Maybe not necessary, but this could help prevent errors where we access the verified method
+  // after it has been deleted.
+  mir_graph_->GetCurrentDexCompilationUnit()->ClearVerifiedMethod();
 }
 
 /* Determine the offset of each literal field */
@@ -768,6 +786,7 @@ int Mir2Lir::AssignLiteralOffset(CodeOffset offset) {
   offset = AssignLiteralPointerOffsetCommon(code_literal_list_, offset, ptr_size);
   offset = AssignLiteralPointerOffsetCommon(method_literal_list_, offset, ptr_size);
   offset = AssignLiteralPointerOffsetCommon(class_literal_list_, offset, ptr_size);
+  offset = AssignLiteralPointerOffsetCommon(string_literal_list_, offset, ptr_size);
   return offset;
 }
 
@@ -973,6 +992,7 @@ Mir2Lir::Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena
       literal_list_(NULL),
       method_literal_list_(NULL),
       class_literal_list_(NULL),
+      string_literal_list_(NULL),
       code_literal_list_(NULL),
       first_fixup_(NULL),
       cu_(cu),
@@ -1080,11 +1100,18 @@ CompiledMethod* Mir2Lir::GetCompiledMethod() {
   }
 
   std::unique_ptr<std::vector<uint8_t>> cfi_info(ReturnCallFrameInformation());
-  CompiledMethod* result =
-      new CompiledMethod(cu_->compiler_driver, cu_->instruction_set, code_buffer_, frame_size_,
-                         core_spill_mask_, fp_spill_mask_, encoded_mapping_table_,
-                         vmap_encoder.GetData(), native_gc_map_, cfi_info.get());
-  return result;
+  ArrayRef<const uint8_t> cfi_ref;
+  if (cfi_info.get() != nullptr) {
+    cfi_ref = ArrayRef<const uint8_t>(*cfi_info);
+  }
+  return CompiledMethod::SwapAllocCompiledMethod(
+      cu_->compiler_driver, cu_->instruction_set,
+      ArrayRef<const uint8_t>(code_buffer_),
+      frame_size_, core_spill_mask_, fp_spill_mask_,
+      ArrayRef<const uint8_t>(encoded_mapping_table_),
+      ArrayRef<const uint8_t>(vmap_encoder.GetData()),
+      ArrayRef<const uint8_t>(native_gc_map_),
+      cfi_ref);
 }
 
 size_t Mir2Lir::GetMaxPossibleCompilerTemps() const {
@@ -1239,6 +1266,17 @@ void Mir2Lir::LoadClassType(uint32_t type_idx, SpecialTargetRegister symbolic_re
   }
   // Loads a Class pointer, which is a reference as it lives in the heap.
   LIR* load_pc_rel = OpPcRelLoad(TargetReg(symbolic_reg, kRef), data_target);
+  AppendLIR(load_pc_rel);
+}
+
+void Mir2Lir::LoadString(uint32_t string_idx, RegStorage target_reg) {
+  // Use the literal pool and a PC-relative load from a data word.
+  LIR* data_target = ScanLiteralPool(string_literal_list_, string_idx, 0);
+  if (data_target == nullptr) {
+    data_target = AddWordData(&string_literal_list_, string_idx);
+  }
+  // Loads a Class pointer, which is a reference as it lives in the heap.
+  LIR* load_pc_rel = OpPcRelLoad(target_reg, data_target);
   AppendLIR(load_pc_rel);
 }
 

@@ -44,6 +44,7 @@
 #include "common_throws.h"
 #include "debugger.h"
 #include "dex_file-inl.h"
+#include "gc_root.h"
 #include "gc/accounting/heap_bitmap.h"
 #include "gc/heap.h"
 #include "gc/space/space.h"
@@ -475,9 +476,14 @@ class Hprof {
         }
       }
 
-      std::unique_ptr<File> file(new File(out_fd, filename_));
+      std::unique_ptr<File> file(new File(out_fd, filename_, true));
       okay = file->WriteFully(header_data_ptr_, header_data_size_) &&
-          file->WriteFully(body_data_ptr_, body_data_size_);
+             file->WriteFully(body_data_ptr_, body_data_size_);
+      if (okay) {
+        okay = file->FlushCloseOrErase() == 0;
+      } else {
+        file->Erase();
+      }
       if (!okay) {
         std::string msg(StringPrintf("Couldn't dump heap; writing \"%s\" failed: %s",
                                      filename_.c_str(), strerror(errno)));
@@ -496,12 +502,12 @@ class Hprof {
   }
 
  private:
-  static void RootVisitor(mirror::Object** obj, void* arg, uint32_t thread_id, RootType root_type)
+  static void RootVisitor(mirror::Object** obj, void* arg, const RootInfo& root_info)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     DCHECK(arg != nullptr);
     DCHECK(obj != nullptr);
     DCHECK(*obj != nullptr);
-    reinterpret_cast<Hprof*>(arg)->VisitRoot(*obj, thread_id, root_type);
+    reinterpret_cast<Hprof*>(arg)->VisitRoot(*obj, root_info);
   }
 
   static void VisitObjectCallback(mirror::Object* obj, void* arg)
@@ -511,7 +517,7 @@ class Hprof {
     reinterpret_cast<Hprof*>(arg)->DumpHeapObject(obj);
   }
 
-  void VisitRoot(const mirror::Object* obj, uint32_t thread_id, RootType type)
+  void VisitRoot(const mirror::Object* obj, const RootInfo& root_info)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   int DumpHeapObject(mirror::Object* obj) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -1056,7 +1062,7 @@ int Hprof::DumpHeapObject(mirror::Object* obj) {
   return 0;
 }
 
-void Hprof::VisitRoot(const mirror::Object* obj, uint32_t thread_id, RootType type) {
+void Hprof::VisitRoot(const mirror::Object* obj, const RootInfo& root_info) {
   static const HprofHeapTag xlate[] = {
     HPROF_ROOT_UNKNOWN,
     HPROF_ROOT_JNI_GLOBAL,
@@ -1074,12 +1080,12 @@ void Hprof::VisitRoot(const mirror::Object* obj, uint32_t thread_id, RootType ty
     HPROF_ROOT_VM_INTERNAL,
     HPROF_ROOT_JNI_MONITOR,
   };
-  CHECK_LT(type, sizeof(xlate) / sizeof(HprofHeapTag));
+  CHECK_LT(root_info.GetType(), sizeof(xlate) / sizeof(HprofHeapTag));
   if (obj == NULL) {
     return;
   }
-  gc_scan_state_ = xlate[type];
-  gc_thread_serial_number_ = thread_id;
+  gc_scan_state_ = xlate[root_info.GetType()];
+  gc_thread_serial_number_ = root_info.GetThreadId();
   MarkRootObject(obj, 0);
   gc_scan_state_ = 0;
   gc_thread_serial_number_ = 0;

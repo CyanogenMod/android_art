@@ -59,7 +59,7 @@ class OatTest : public CommonCompilerTest {
         EXPECT_EQ(oat_method.GetFpSpillMask(), compiled_method->GetFpSpillMask());
         uintptr_t oat_code_aligned = RoundDown(reinterpret_cast<uintptr_t>(quick_oat_code), 2);
         quick_oat_code = reinterpret_cast<const void*>(oat_code_aligned);
-        const std::vector<uint8_t>* quick_code = compiled_method->GetQuickCode();
+        const SwapVector<uint8_t>* quick_code = compiled_method->GetQuickCode();
         EXPECT_TRUE(quick_code != nullptr);
         size_t code_size = quick_code->size() * sizeof(quick_code[0]);
         EXPECT_EQ(0, memcmp(quick_oat_code, &quick_code[0], code_size))
@@ -73,7 +73,7 @@ class OatTest : public CommonCompilerTest {
         EXPECT_EQ(oat_method.GetFpSpillMask(), 0U);
         uintptr_t oat_code_aligned = RoundDown(reinterpret_cast<uintptr_t>(portable_oat_code), 2);
         portable_oat_code = reinterpret_cast<const void*>(oat_code_aligned);
-        const std::vector<uint8_t>* portable_code = compiled_method->GetPortableCode();
+        const SwapVector<uint8_t>* portable_code = compiled_method->GetPortableCode();
         EXPECT_TRUE(portable_code != nullptr);
         size_t code_size = portable_code->size() * sizeof(portable_code[0]);
         EXPECT_EQ(0, memcmp(quick_oat_code, &portable_code[0], code_size))
@@ -105,7 +105,7 @@ TEST_F(OatTest, WriteRead) {
                                             verification_results_.get(),
                                             method_inliner_map_.get(),
                                             compiler_kind, insn_set,
-                                            insn_features, false, NULL, 2, true, true,
+                                            insn_features, false, NULL, nullptr, 2, true, true,
                                             timer_.get()));
   jobject class_loader = NULL;
   if (kCompile) {
@@ -135,8 +135,8 @@ TEST_F(OatTest, WriteRead) {
     compiler_driver_->CompileAll(class_loader, class_linker->GetBootClassPath(), &timings);
   }
   std::string error_msg;
-  std::unique_ptr<OatFile> oat_file(OatFile::Open(tmp.GetFilename(), tmp.GetFilename(), NULL, false,
-                                            &error_msg));
+  std::unique_ptr<OatFile> oat_file(OatFile::Open(tmp.GetFilename(), tmp.GetFilename(), nullptr,
+                                                  nullptr, false, &error_msg));
   ASSERT_TRUE(oat_file.get() != nullptr) << error_msg;
   const OatHeader& oat_header = oat_file->GetOatHeader();
   ASSERT_TRUE(oat_header.IsValid());
@@ -185,8 +185,8 @@ TEST_F(OatTest, OatHeaderSizeCheck) {
   // If this test is failing and you have to update these constants,
   // it is time to update OatHeader::kOatVersion
   EXPECT_EQ(84U, sizeof(OatHeader));
-  EXPECT_EQ(8U, sizeof(OatMethodOffsets));
-  EXPECT_EQ(24U, sizeof(OatQuickMethodHeader));
+  EXPECT_EQ(4U, sizeof(OatMethodOffsets));
+  EXPECT_EQ(28U, sizeof(OatQuickMethodHeader));
   EXPECT_EQ(79 * GetInstructionSetPointerSize(kRuntimeISA), sizeof(QuickEntryPoints));
 }
 
