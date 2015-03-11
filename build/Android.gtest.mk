@@ -72,6 +72,7 @@ RUNTIME_GTEST_COMMON_SRC_FILES := \
   runtime/barrier_test.cc \
   runtime/base/bit_field_test.cc \
   runtime/base/bit_vector_test.cc \
+  runtime/base/hash_set_test.cc \
   runtime/base/hex_dump_test.cc \
   runtime/base/histogram_test.cc \
   runtime/base/mutex_test.cc \
@@ -152,6 +153,7 @@ COMPILER_GTEST_COMMON_SRC_FILES := \
   compiler/output_stream_test.cc \
   compiler/utils/arena_allocator_test.cc \
   compiler/utils/dedupe_set_test.cc \
+  compiler/utils/swap_space_test.cc \
   compiler/utils/arm/managed_register_arm_test.cc \
   compiler/utils/arm64/managed_register_arm64_test.cc \
   compiler/utils/x86/managed_register_x86_test.cc \
@@ -278,7 +280,7 @@ define define-art-gtest-rule-host
 
 .PHONY: $$(gtest_rule)
 $$(gtest_rule): $$(gtest_exe) $$(ART_GTEST_$(1)_HOST_DEPS) $(foreach file,$(ART_GTEST_$(1)_DEX_DEPS),$(ART_TEST_HOST_GTEST_$(file)_DEX)) $$(gtest_deps)
-	$(hide) ($$(call ART_TEST_SKIP,$$@) && LD_PRELOAD=libsigchain$$(ART_HOST_SHLIB_EXTENSION) $$< && $$(call ART_TEST_PASSED,$$@)) \
+	$(hide) ($$(call ART_TEST_SKIP,$$@) && $$< && $$(call ART_TEST_PASSED,$$@)) \
 	  || $$(call ART_TEST_FAILED,$$@)
 
   ART_TEST_HOST_GTEST$$($(2)ART_PHONY_TEST_HOST_SUFFIX)_RULES += $$(gtest_rule)
@@ -329,6 +331,7 @@ define define-art-gtest
   LOCAL_SRC_FILES := $$(art_gtest_filename)
   LOCAL_C_INCLUDES += $$(ART_C_INCLUDES) art/runtime $$(art_gtest_extra_c_includes)
   LOCAL_SHARED_LIBRARIES += libartd $$(art_gtest_extra_shared_libraries) libart-gtest
+  LOCAL_WHOLE_STATIC_LIBRARIES += libsigchain
 
   LOCAL_ADDITIONAL_DEPENDENCIES := art/build/Android.common_build.mk
   LOCAL_ADDITIONAL_DEPENDENCIES += art/build/Android.gtest.mk

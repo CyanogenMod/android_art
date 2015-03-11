@@ -199,6 +199,22 @@ class QuickArgumentVisitor {
 #endif
 
  public:
+  // Special handling for proxy methods. Proxy methods are instance methods so the
+  // 'this' object is the 1st argument. They also have the same frame layout as the
+  // kRefAndArgs runtime method. Since 'this' is a reference, it is located in the
+  // 1st GPR.
+  static mirror::Object* GetProxyThisObject(StackReference<mirror::ArtMethod>* sp)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    CHECK(sp->AsMirrorPtr()->IsProxyMethod());
+    CHECK_EQ(kQuickCalleeSaveFrame_RefAndArgs_FrameSize, sp->AsMirrorPtr()->GetFrameSizeInBytes());
+    CHECK_GT(kNumQuickGprArgs, 0u);
+    constexpr uint32_t kThisGprIndex = 0u;  // 'this' is in the 1st GPR.
+    size_t this_arg_offset = kQuickCalleeSaveFrame_RefAndArgs_Gpr1Offset +
+        GprIndexToGprOffset(kThisGprIndex);
+    uint8_t* this_arg_address = reinterpret_cast<uint8_t*>(sp) + this_arg_offset;
+    return reinterpret_cast<StackReference<mirror::Object>*>(this_arg_address)->AsMirrorPtr();
+  }
+
   static mirror::ArtMethod* GetCallingMethod(StackReference<mirror::ArtMethod>* sp)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     DCHECK(sp->AsMirrorPtr()->IsCalleeSaveMethod());
@@ -409,6 +425,13 @@ class QuickArgumentVisitor {
   // Does a 64bit parameter straddle the register and stack arguments?
   bool is_split_long_or_double_;
 };
+
+// Returns the 'this' object of a proxy method. This function is only used by StackVisitor. It
+// allows to use the QuickArgumentVisitor constants without moving all the code in its own module.
+extern "C" mirror::Object* artQuickGetProxyThisObject(StackReference<mirror::ArtMethod>* sp)
+    SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+  return QuickArgumentVisitor::GetProxyThisObject(sp);
+}
 
 // Visits arguments on the stack placing them into the shadow frame.
 class BuildQuickShadowFrameVisitor FINAL : public QuickArgumentVisitor {
@@ -803,6 +826,15 @@ extern "C" const void* artQuickResolutionTrampoline(mirror::ArtMethod* called,
         if (method_index != DexFile::kDexNoIndex) {
           caller->SetDexCacheResolvedMethod(method_index, called);
         }
+      }
+    } else if (invoke_type == kStatic) {
+      const auto called_dex_method_idx = called->GetDexMethodIndex();
+      // For static invokes, we may dispatch to the static method in the superclass but resolve
+      // using the subclass. To prevent getting slow paths on each invoke, we force set the
+      // resolved method for the super class dex method index if we are in the same dex file.
+      // b/19175856
+      if (called->GetDexFile() == dex_file && dex_method_idx != called_dex_method_idx) {
+        called->GetDexCache()->SetResolvedMethod(called_dex_method_idx, called);
       }
     }
     // Ensure that the called method's class is initialized.
@@ -1637,7 +1669,7 @@ extern "C" TwoWordReturn artQuickGenericJniTrampoline(Thread* self,
   *(sp32 - 1) = cookie;
 
   // Retrieve the stored native code.
-  const void* nativeCode = called->GetNativeMethod();
+  void* nativeCode = called->GetEntryPointFromJni();
 
   // There are two cases for the content of nativeCode:
   // 1) Pointer to the native function.

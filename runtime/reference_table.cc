@@ -89,7 +89,7 @@ struct ObjectComparator {
 
     // Sort by class...
     if (obj1->GetClass() != obj2->GetClass()) {
-      return obj1->GetClass()->IdentityHashCode() < obj2->IdentityHashCode();
+      return obj1->GetClass()->IdentityHashCode() < obj2->GetClass()->IdentityHashCode();
     } else {
       // ...then by size...
       size_t count1 = obj1->SizeOf();
@@ -242,10 +242,9 @@ void ReferenceTable::Dump(std::ostream& os, Table& entries) {
                   identical, equiv);
 }
 
-void ReferenceTable::VisitRoots(RootCallback* visitor, void* arg, uint32_t tid,
-                                RootType root_type) {
+void ReferenceTable::VisitRoots(RootCallback* visitor, void* arg, const RootInfo& root_info) {
   for (GcRoot<mirror::Object>& root : entries_) {
-    root.VisitRoot(visitor, arg, tid, root_type);
+    root.VisitRoot(visitor, arg, root_info);
   }
 }
 

@@ -173,6 +173,14 @@ ART_TARGET_CLANG_CFLAGS_arm64  += \
   -DNVALGRIND \
   -Wno-unused-value
 
+
+ifdef ART_IMT_SIZE
+  art_cflags += -DIMT_SIZE=$(ART_IMT_SIZE)
+else
+  # Default is 64
+  art_cflags += -DIMT_SIZE=64
+endif
+
 ifeq ($(ART_SMALL_MODE),true)
   art_cflags += -DART_SMALL_MODE=1
 endif
@@ -192,7 +200,7 @@ art_target_non_debug_cflags := \
 
 ifeq ($(HOST_OS),linux)
   # Larger frame-size for host clang builds today
-  art_host_non_debug_cflags += -Wframe-larger-than=2600
+  art_host_non_debug_cflags += -Wframe-larger-than=3000
   art_target_non_debug_cflags += -Wframe-larger-than=1728
 endif
 

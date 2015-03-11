@@ -67,10 +67,11 @@ OatFile* OatFile::OpenMemory(std::vector<uint8_t>& oat_contents,
 OatFile* OatFile::Open(const std::string& filename,
                        const std::string& location,
                        byte* requested_base,
+                       uint8_t* oat_file_begin,
                        bool executable,
                        std::string* error_msg) {
   CHECK(!filename.empty()) << location;
-  CheckLocation(filename);
+  CheckLocation(location);
   std::unique_ptr<OatFile> ret;
   if (kUsePortableCompiler && executable) {
     // If we are using PORTABLE, use dlopen to deal with relocations.
@@ -91,7 +92,8 @@ OatFile* OatFile::Open(const std::string& filename,
       *error_msg = StringPrintf("Failed to open oat filename for reading: %s", strerror(errno));
       return nullptr;
     }
-    ret.reset(OpenElfFile(file.get(), location, requested_base, false, executable, error_msg));
+    ret.reset(OpenElfFile(file.get(), location, requested_base, oat_file_begin, false, executable,
+                          error_msg));
 
     // It would be nice to unlink here. But we might have opened the file created by the
     // ScopedLock, which we better not delete to avoid races. TODO: Investigate how to fix the API
@@ -102,12 +104,12 @@ OatFile* OatFile::Open(const std::string& filename,
 
 OatFile* OatFile::OpenWritable(File* file, const std::string& location, std::string* error_msg) {
   CheckLocation(location);
-  return OpenElfFile(file, location, NULL, true, false, error_msg);
+  return OpenElfFile(file, location, nullptr, nullptr, true, false, error_msg);
 }
 
 OatFile* OatFile::OpenReadable(File* file, const std::string& location, std::string* error_msg) {
   CheckLocation(location);
-  return OpenElfFile(file, location, NULL, false, false, error_msg);
+  return OpenElfFile(file, location, nullptr, nullptr, false, false, error_msg);
 }
 
 OatFile* OatFile::OpenDlopen(const std::string& elf_filename,
@@ -125,11 +127,13 @@ OatFile* OatFile::OpenDlopen(const std::string& elf_filename,
 OatFile* OatFile::OpenElfFile(File* file,
                               const std::string& location,
                               byte* requested_base,
+                              uint8_t* oat_file_begin,
                               bool writable,
                               bool executable,
                               std::string* error_msg) {
   std::unique_ptr<OatFile> oat_file(new OatFile(location, executable));
-  bool success = oat_file->ElfFileOpen(file, requested_base, writable, executable, error_msg);
+  bool success = oat_file->ElfFileOpen(file, requested_base, oat_file_begin, writable, executable,
+                                       error_msg);
   if (!success) {
     CHECK(!error_msg->empty());
     return nullptr;
@@ -188,9 +192,12 @@ bool OatFile::Dlopen(const std::string& elf_filename, byte* requested_base,
   return Setup(error_msg);
 }
 
-bool OatFile::ElfFileOpen(File* file, byte* requested_base, bool writable, bool executable,
+bool OatFile::ElfFileOpen(File* file, byte* requested_base, uint8_t* oat_file_begin,
+                          bool writable, bool executable,
                           std::string* error_msg) {
-  elf_file_.reset(ElfFile::Open(file, writable, true, error_msg));
+  // TODO: rename requested_base to oat_data_begin
+  elf_file_.reset(ElfFile::Open(file, writable, /*program_header_only*/true, error_msg,
+                                oat_file_begin));
   if (elf_file_.get() == nullptr) {
     DCHECK(!error_msg->empty());
     return false;
@@ -451,7 +458,7 @@ size_t OatFile::OatDexFile::FileSize() const {
 
 const DexFile* OatFile::OatDexFile::OpenDexFile(std::string* error_msg) const {
   return DexFile::Open(dex_file_pointer_, FileSize(), dex_file_location_,
-                       dex_file_location_checksum_, error_msg);
+                       dex_file_location_checksum_, GetOatFile(), error_msg);
 }
 
 uint32_t OatFile::OatDexFile::GetOatClassOffset(uint16_t class_def_index) const {
@@ -565,27 +572,22 @@ const OatMethodOffsets* OatFile::OatClass::GetOatMethodOffsets(uint32_t method_i
 const OatFile::OatMethod OatFile::OatClass::GetOatMethod(uint32_t method_index) const {
   const OatMethodOffsets* oat_method_offsets = GetOatMethodOffsets(method_index);
   if (oat_method_offsets == nullptr) {
-    return OatMethod(nullptr, 0, 0);
+    return OatMethod(nullptr, 0);
   }
   if (oat_file_->IsExecutable() ||
       Runtime::Current() == nullptr ||        // This case applies for oatdump.
       Runtime::Current()->IsCompiler()) {
-    return OatMethod(
-        oat_file_->Begin(),
-        oat_method_offsets->code_offset_,
-        oat_method_offsets->gc_map_offset_);
+    return OatMethod(oat_file_->Begin(), oat_method_offsets->code_offset_);
   } else {
     // We aren't allowed to use the compiled code. We just force it down the interpreted version.
-    return OatMethod(oat_file_->Begin(), 0, 0);
+    return OatMethod(oat_file_->Begin(), 0);
   }
 }
 
 OatFile::OatMethod::OatMethod(const byte* base,
-                              const uint32_t code_offset,
-                              const uint32_t gc_map_offset)
+                              const uint32_t code_offset)
   : begin_(base),
-    code_offset_(code_offset),
-    native_gc_map_offset_(gc_map_offset) {
+    code_offset_(code_offset) {
 }
 
 OatFile::OatMethod::~OatMethod() {}
@@ -596,7 +598,11 @@ void OatFile::OatMethod::LinkMethod(mirror::ArtMethod* method) const {
   method->SetEntryPointFromPortableCompiledCode(GetPortableCode());
 #endif
   method->SetEntryPointFromQuickCompiledCode(GetQuickCode());
-  method->SetNativeGcMap(GetNativeGcMap());
+}
+
+bool OatFile::IsPic() const {
+  return GetOatHeader().IsPic();
+  // TODO: Check against oat_patches. b/18144996
 }
 
 }  // namespace art

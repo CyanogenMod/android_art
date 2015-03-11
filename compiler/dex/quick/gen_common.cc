@@ -160,6 +160,10 @@ LIR* Mir2Lir::GenNullCheck(RegStorage m_reg, int opt_flags) {
   if (!cu_->compiler_driver->GetCompilerOptions().GetImplicitNullChecks()) {
     return GenExplicitNullCheck(m_reg, opt_flags);
   }
+  // If null check has not been eliminated, reset redundant store tracking.
+  if ((opt_flags & MIR_IGNORE_NULL_CHECK) == 0) {
+    ResetDefTracking();
+  }
   return nullptr;
 }
 
@@ -781,15 +785,15 @@ void Mir2Lir::GenIPut(MIR* mir, int opt_flags, OpSize size,
     }
     GenNullCheck(rl_obj.reg, opt_flags);
     int field_offset = field_info.FieldOffset().Int32Value();
-    LIR* store;
+    LIR* null_ck_insn;
     if (is_object) {
-      store = StoreRefDisp(rl_obj.reg, field_offset, rl_src.reg, field_info.IsVolatile() ?
+      null_ck_insn = StoreRefDisp(rl_obj.reg, field_offset, rl_src.reg, field_info.IsVolatile() ?
           kVolatile : kNotVolatile);
     } else {
-      store = StoreBaseDisp(rl_obj.reg, field_offset, rl_src.reg, store_size,
-                            field_info.IsVolatile() ? kVolatile : kNotVolatile);
+      null_ck_insn = StoreBaseDisp(rl_obj.reg, field_offset, rl_src.reg, store_size,
+                                   field_info.IsVolatile() ? kVolatile : kNotVolatile);
     }
-    MarkPossibleNullPointerExceptionAfter(opt_flags, store);
+    MarkPossibleNullPointerExceptionAfter(opt_flags, null_ck_insn);
     if (is_object && !mir_graph_->IsConstantNullRef(rl_src)) {
       MarkGCCard(rl_src.reg, rl_obj.reg);
     }
@@ -877,8 +881,8 @@ void Mir2Lir::GenConstClass(uint32_t type_idx, RegLocation rl_dest) {
 
 void Mir2Lir::GenConstString(uint32_t string_idx, RegLocation rl_dest) {
   /* NOTE: Most strings should be available at compile time */
-  int32_t offset_of_string = mirror::ObjectArray<mirror::String>::OffsetOfElement(string_idx).
-                                                                                      Int32Value();
+  const int32_t offset_of_string =
+      mirror::ObjectArray<mirror::String>::OffsetOfElement(string_idx).Int32Value();
   if (!cu_->compiler_driver->CanAssumeStringIsPresentInDexCache(
       *cu_->dex_file, string_idx) || SLOW_STRING_PATH) {
     // slow path, resolve string if not in dex cache
@@ -896,7 +900,11 @@ void Mir2Lir::GenConstString(uint32_t string_idx, RegLocation rl_dest) {
       r_method = TargetReg(kArg2, kRef);
       LoadCurrMethodDirect(r_method);
     }
-    LoadRefDisp(r_method, mirror::ArtMethod::DexCacheStringsOffset().Int32Value(),
+    // Method to declaring class.
+    LoadRefDisp(r_method, mirror::ArtMethod::DeclaringClassOffset().Int32Value(),
+                TargetReg(kArg0, kRef), kNotVolatile);
+    // Declaring class to dex cache strings.
+    LoadRefDisp(TargetReg(kArg0, kRef), mirror::Class::DexCacheStringsOffset().Int32Value(),
                 TargetReg(kArg0, kRef), kNotVolatile);
 
     // Might call out to helper, which will return resolved string in kRet0
@@ -930,13 +938,38 @@ void Mir2Lir::GenConstString(uint32_t string_idx, RegLocation rl_dest) {
     GenBarrier();
     StoreValue(rl_dest, GetReturn(kRefReg));
   } else {
-    RegLocation rl_method = LoadCurrMethod();
-    RegStorage res_reg = AllocTempRef();
-    RegLocation rl_result = EvalLoc(rl_dest, kRefReg, true);
-    LoadRefDisp(rl_method.reg, mirror::ArtMethod::DexCacheStringsOffset().Int32Value(), res_reg,
-                kNotVolatile);
-    LoadRefDisp(res_reg, offset_of_string, rl_result.reg, kNotVolatile);
-    StoreValue(rl_dest, rl_result);
+    // Try to see if we can embed a direct pointer.
+    bool use_direct_ptr = false;
+    size_t direct_ptr = 0;
+    bool embed_string = false;
+    // TODO: Implement for X86.
+    if (cu_->instruction_set != kX86 && cu_->instruction_set != kX86_64) {
+      embed_string = cu_->compiler_driver->CanEmbedStringInCode(*cu_->dex_file, string_idx,
+                                                                &use_direct_ptr, &direct_ptr);
+    }
+    if (embed_string) {
+      RegLocation rl_result = EvalLoc(rl_dest, kRefReg, true);
+      if (!use_direct_ptr) {
+        LoadString(string_idx, rl_result.reg);
+      } else {
+        LoadConstant(rl_result.reg, static_cast<int32_t>(direct_ptr));
+      }
+      StoreValue(rl_dest, rl_result);
+    } else {
+      RegLocation rl_method = LoadCurrMethod();
+      RegStorage res_reg = AllocTempRef();
+      RegLocation rl_result = EvalLoc(rl_dest, kRefReg, true);
+
+      // Method to declaring class.
+      LoadRefDisp(rl_method.reg, mirror::ArtMethod::DeclaringClassOffset().Int32Value(),
+                  res_reg, kNotVolatile);
+      // Declaring class to dex cache strings.
+      LoadRefDisp(res_reg, mirror::Class::DexCacheStringsOffset().Int32Value(), res_reg,
+                  kNotVolatile);
+
+      LoadRefDisp(res_reg, offset_of_string, rl_result.reg, kNotVolatile);
+      StoreValue(rl_dest, rl_result);
+    }
   }
 }
 

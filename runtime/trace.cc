@@ -427,6 +427,15 @@ void Trace::Stop() {
                                                     instrumentation::Instrumentation::kMethodExited |
                                                     instrumentation::Instrumentation::kMethodUnwind);
     }
+    if (the_trace->trace_file_.get() != nullptr) {
+      // Do not try to erase, so flush and close explicitly.
+      if (the_trace->trace_file_->Flush() != 0) {
+        PLOG(ERROR) << "Could not flush trace file.";
+      }
+      if (the_trace->trace_file_->Close() != 0) {
+        PLOG(ERROR) << "Could not close trace file.";
+      }
+    }
     delete the_trace;
   }
   runtime->GetThreadList()->ResumeAll();
@@ -706,9 +715,21 @@ static void DumpThread(Thread* t, void* arg) {
 
 void Trace::DumpThreadList(std::ostream& os) {
   Thread* self = Thread::Current();
+  for (auto it : exited_threads_) {
+    os << it.first << "\t" << it.second << "\n";
+  }
   Locks::thread_list_lock_->AssertNotHeld(self);
   MutexLock mu(self, *Locks::thread_list_lock_);
   Runtime::Current()->GetThreadList()->ForEach(DumpThread, &os);
+}
+
+void Trace::StoreExitingThreadInfo(Thread* thread) {
+  MutexLock mu(thread, *Locks::trace_lock_);
+  if (the_trace_ != nullptr) {
+    std::string name;
+    thread->GetThreadName(name);
+    the_trace_->exited_threads_.Put(thread->GetTid(), name);
+  }
 }
 
 }  // namespace art

@@ -57,6 +57,7 @@ define build-art-executable
   LOCAL_SRC_FILES := $$(art_source)
   LOCAL_C_INCLUDES += $(ART_C_INCLUDES) art/runtime $$(art_c_includes)
   LOCAL_SHARED_LIBRARIES += $$(art_shared_libraries)
+  LOCAL_WHOLE_STATIC_LIBRARIES += libsigchain
 
   ifeq ($$(art_ndebug_or_debug),ndebug)
     LOCAL_MODULE := $$(art_executable)
@@ -65,9 +66,15 @@ define build-art-executable
   endif
 
   LOCAL_CFLAGS := $(ART_EXECUTABLES_CFLAGS)
+  # Mac OS linker doesn't understand --export-dynamic/--version-script.
+  ifneq ($$(HOST_OS)-$$(art_target_or_host),darwin-host)
+    LOCAL_LDFLAGS := -Wl,--version-script,art/sigchainlib/version-script.txt -Wl,--export-dynamic
+  endif
+
   ifeq ($$(art_target_or_host),target)
   	$(call set-target-local-clang-vars)
   	$(call set-target-local-cflags-vars,$(6))
+    LOCAL_SHARED_LIBRARIES += libdl
   else # host
     LOCAL_CLANG := $(ART_HOST_CLANG)
     LOCAL_CFLAGS += $(ART_HOST_CFLAGS)
@@ -76,7 +83,7 @@ define build-art-executable
     else
       LOCAL_CFLAGS += $(ART_HOST_NON_DEBUG_CFLAGS)
     endif
-    LOCAL_LDLIBS += -lpthread
+    LOCAL_LDLIBS += -lpthread -ldl
   endif
 
   ifeq ($$(art_ndebug_or_debug),ndebug)
