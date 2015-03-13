@@ -25,6 +25,7 @@
 #include "object_callbacks.h"
 #include "quick/quick_method_frame_info.h"
 #include "read_barrier_option.h"
+#include "stack.h"
 
 namespace art {
 
@@ -41,16 +42,13 @@ namespace mirror {
 typedef void (EntryPointFromInterpreter)(Thread* self, MethodHelper& mh,
     const DexFile::CodeItem* code_item, ShadowFrame* shadow_frame, JValue* result);
 
+#define ART_METHOD_HAS_PADDING_FIELD_ON_64_BIT
+
 // C++ mirror of java.lang.reflect.ArtMethod.
 class MANAGED ArtMethod FINAL : public Object {
  public:
   // Size of java.lang.reflect.ArtMethod.class.
   static uint32_t ClassSize();
-
-  // Size of an instance of java.lang.reflect.ArtMethod not including its value array.
-  static constexpr uint32_t InstanceSize() {
-    return sizeof(ArtMethod);
-  }
 
   static ArtMethod* FromReflectedMethod(const ScopedObjectAccessAlreadyRunnable& soa,
                                         jobject jlr_method)
@@ -64,7 +62,7 @@ class MANAGED ArtMethod FINAL : public Object {
     return MemberOffset(OFFSETOF_MEMBER(ArtMethod, declaring_class_));
   }
 
-  uint32_t GetAccessFlags() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  ALWAYS_INLINE uint32_t GetAccessFlags() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   void SetAccessFlags(uint32_t new_access_flags) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     // Not called within a transaction.
@@ -168,6 +166,9 @@ class MANAGED ArtMethod FINAL : public Object {
 
   uint16_t GetMethodIndex() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
+  // Doesn't do erroneous / unresolved class checks.
+  uint16_t GetMethodIndexDuringLinking() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
   size_t GetVtableIndex() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     return GetMethodIndex();
   }
@@ -193,19 +194,11 @@ class MANAGED ArtMethod FINAL : public Object {
   // Number of 32bit registers that would be required to hold all the arguments
   static size_t NumArgRegisters(const StringPiece& shorty);
 
-  uint32_t GetDexMethodIndex() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  ALWAYS_INLINE uint32_t GetDexMethodIndex() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   void SetDexMethodIndex(uint32_t new_idx) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     // Not called within a transaction.
     SetField32<false>(OFFSET_OF_OBJECT_MEMBER(ArtMethod, dex_method_index_), new_idx);
-  }
-
-  ObjectArray<String>* GetDexCacheStrings() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  void SetDexCacheStrings(ObjectArray<String>* new_dex_cache_strings)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-
-  static MemberOffset DexCacheStringsOffset() {
-    return OFFSET_OF_OBJECT_MEMBER(ArtMethod, dex_cache_strings_);
   }
 
   static MemberOffset DexCacheResolvedMethodsOffset() {
@@ -216,11 +209,11 @@ class MANAGED ArtMethod FINAL : public Object {
     return OFFSET_OF_OBJECT_MEMBER(ArtMethod, dex_cache_resolved_types_);
   }
 
-  ArtMethod* GetDexCacheResolvedMethod(uint16_t method_idx)
+  ALWAYS_INLINE ArtMethod* GetDexCacheResolvedMethod(uint16_t method_idx)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  void SetDexCacheResolvedMethod(uint16_t method_idx, ArtMethod* new_method)
+  ALWAYS_INLINE void SetDexCacheResolvedMethod(uint16_t method_idx, ArtMethod* new_method)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  void SetDexCacheResolvedMethods(ObjectArray<ArtMethod>* new_dex_cache_methods)
+  ALWAYS_INLINE void SetDexCacheResolvedMethods(ObjectArray<ArtMethod>* new_dex_cache_methods)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   bool HasDexCacheResolvedMethods() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   bool HasSameDexCacheResolvedMethods(ArtMethod* other) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -245,51 +238,94 @@ class MANAGED ArtMethod FINAL : public Object {
   template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   EntryPointFromInterpreter* GetEntryPointFromInterpreter()
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return GetFieldPtr<EntryPointFromInterpreter*, kVerifyFlags>(
-        OFFSET_OF_OBJECT_MEMBER(ArtMethod, entry_point_from_interpreter_));
+    CheckObjectSizeEqualsMirrorSize();
+    return GetEntryPointFromInterpreterPtrSize(sizeof(void*));
+  }
+  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  EntryPointFromInterpreter* GetEntryPointFromInterpreterPtrSize(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    return GetFieldPtrWithSize<EntryPointFromInterpreter*, kVerifyFlags>(
+        EntryPointFromInterpreterOffset(pointer_size), pointer_size);
   }
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   void SetEntryPointFromInterpreter(EntryPointFromInterpreter* entry_point_from_interpreter)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    SetFieldPtr<false, true, kVerifyFlags>(
-        OFFSET_OF_OBJECT_MEMBER(ArtMethod, entry_point_from_interpreter_),
-        entry_point_from_interpreter);
+    CheckObjectSizeEqualsMirrorSize();
+    SetEntryPointFromInterpreterPtrSize(entry_point_from_interpreter, sizeof(void*));
+  }
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  void SetEntryPointFromInterpreterPtrSize(EntryPointFromInterpreter* entry_point_from_interpreter,
+                                           size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    SetFieldPtrWithSize<false, true, kVerifyFlags>(
+        EntryPointFromInterpreterOffset(pointer_size), entry_point_from_interpreter, pointer_size);
   }
 
 #if defined(ART_USE_PORTABLE_COMPILER)
-  static MemberOffset EntryPointFromPortableCompiledCodeOffset() {
-    return MemberOffset(OFFSETOF_MEMBER(ArtMethod, entry_point_from_portable_compiled_code_));
+  ALWAYS_INLINE static MemberOffset EntryPointFromPortableCompiledCodeOffset(size_t pointer_size) {
+    return MemberOffset(PtrSizedFieldsOffset() + OFFSETOF_MEMBER(
+        PtrSizedFields, entry_point_from_portable_compiled_code_) / sizeof(void*) * pointer_size);
   }
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
-  const void* GetEntryPointFromPortableCompiledCode() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return GetFieldPtr<const void*, kVerifyFlags>(
-        EntryPointFromPortableCompiledCodeOffset());
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  const void* GetEntryPointFromPortableCompiledCode()
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    CheckObjectSizeEqualsMirrorSize();
+    return GetEntryPointFromPortableCompiledCodePtrSize(sizeof(void*));
   }
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  ALWAYS_INLINE const void* GetEntryPointFromPortableCompiledCodePtrSize(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    return GetFieldPtrWithSize<const void*, kVerifyFlags>(
+        EntryPointFromPortableCompiledCodeOffset(pointer_size), pointer_size);
+  }
+
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   void SetEntryPointFromPortableCompiledCode(const void* entry_point_from_portable_compiled_code)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    SetFieldPtr<false, true, kVerifyFlags>(
-        EntryPointFromPortableCompiledCodeOffset(), entry_point_from_portable_compiled_code);
+    CheckObjectSizeEqualsMirrorSize();
+    return SetEntryPointFromPortableCompiledCodePtrSize(entry_point_from_portable_compiled_code,
+                                                        sizeof(void*));
+  }
+
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  void SetEntryPointFromPortableCompiledCodePtrSize(
+      const void* entry_point_from_portable_compiled_code, size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    SetFieldPtrWithSize<false, true, kVerifyFlags>(
+        EntryPointFromPortableCompiledCodeOffset(pointer_size),
+        entry_point_from_portable_compiled_code, pointer_size);
   }
 #endif
 
-  static MemberOffset EntryPointFromQuickCompiledCodeOffset() {
-    return MemberOffset(OFFSETOF_MEMBER(ArtMethod, entry_point_from_quick_compiled_code_));
-  }
-
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   const void* GetEntryPointFromQuickCompiledCode() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return GetFieldPtr<const void*, kVerifyFlags>(EntryPointFromQuickCompiledCodeOffset());
+    CheckObjectSizeEqualsMirrorSize();
+    return GetEntryPointFromQuickCompiledCodePtrSize(sizeof(void*));
+  }
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  ALWAYS_INLINE const void* GetEntryPointFromQuickCompiledCodePtrSize(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    return GetFieldPtrWithSize<const void*, kVerifyFlags>(
+        EntryPointFromQuickCompiledCodeOffset(pointer_size), pointer_size);
   }
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   void SetEntryPointFromQuickCompiledCode(const void* entry_point_from_quick_compiled_code)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    SetFieldPtr<false, true, kVerifyFlags>(
-        EntryPointFromQuickCompiledCodeOffset(), entry_point_from_quick_compiled_code);
+    CheckObjectSizeEqualsMirrorSize();
+    SetEntryPointFromQuickCompiledCodePtrSize(entry_point_from_quick_compiled_code,
+                                              sizeof(void*));
+  }
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  ALWAYS_INLINE void SetEntryPointFromQuickCompiledCodePtrSize(
+      const void* entry_point_from_quick_compiled_code, size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    SetFieldPtrWithSize<false, true, kVerifyFlags>(
+        EntryPointFromQuickCompiledCodeOffset(pointer_size), entry_point_from_quick_compiled_code,
+        pointer_size);
   }
 
   uint32_t GetCodeSize() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -318,38 +354,36 @@ class MANAGED ArtMethod FINAL : public Object {
   uint32_t GetQuickOatCodeOffset() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   void SetQuickOatCodeOffset(uint32_t code_offset) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  static const void* EntryPointToCodePointer(const void* entry_point) ALWAYS_INLINE {
+  ALWAYS_INLINE static const void* EntryPointToCodePointer(const void* entry_point) {
     uintptr_t code = reinterpret_cast<uintptr_t>(entry_point);
     code &= ~0x1;  // TODO: Make this Thumb2 specific.
     return reinterpret_cast<const void*>(code);
   }
 
   // Actual entry point pointer to compiled oat code or nullptr.
-  const void* GetQuickOatEntryPoint() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  const void* GetQuickOatEntryPoint(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   // Actual pointer to compiled oat code or nullptr.
-  const void* GetQuickOatCodePointer() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  const void* GetQuickOatCodePointer(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   // Callers should wrap the uint8_t* in a MappingTable instance for convenient access.
-  const uint8_t* GetMappingTable() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  const uint8_t* GetMappingTable(const void* code_pointer)
+  const uint8_t* GetMappingTable(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  const uint8_t* GetMappingTable(const void* code_pointer, size_t pointer_size)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   // Callers should wrap the uint8_t* in a VmapTable instance for convenient access.
-  const uint8_t* GetVmapTable() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  const uint8_t* GetVmapTable(const void* code_pointer)
+  const uint8_t* GetVmapTable(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  const uint8_t* GetVmapTable(const void* code_pointer, size_t pointer_size)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  const uint8_t* GetNativeGcMap() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return GetFieldPtr<uint8_t*>(OFFSET_OF_OBJECT_MEMBER(ArtMethod, gc_map_));
-  }
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
-  void SetNativeGcMap(const uint8_t* data) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    SetFieldPtr<false, true, kVerifyFlags>(OFFSET_OF_OBJECT_MEMBER(ArtMethod, gc_map_), data);
-  }
-
-  // When building the oat need a convenient place to stuff the offset of the native GC map.
-  void SetOatNativeGcMapOffset(uint32_t gc_map_offset) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  uint32_t GetOatNativeGcMapOffset() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  // Callers should wrap the uint8_t* in a GcMap instance for convenient access.
+  const uint8_t* GetNativeGcMap(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  const uint8_t* GetNativeGcMap(const void* code_pointer, size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   template <bool kCheckFrameSize = true>
   uint32_t GetFrameSizeInBytes() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
@@ -374,8 +408,10 @@ class MANAGED ArtMethod FINAL : public Object {
     return frame_size_in_bytes - kPointerSize;
   }
 
-  size_t GetHandleScopeOffsetInBytes() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return kPointerSize;
+  FrameOffset GetHandleScopeOffsetInBytes() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    constexpr size_t handle_scope_offset = sizeof(StackReference<mirror::ArtMethod>);
+    DCHECK_LT(handle_scope_offset, GetFrameSizeInBytes());
+    return FrameOffset(handle_scope_offset);
   }
 
   void RegisterNative(Thread* self, const void* native_method, bool is_fast)
@@ -383,16 +419,41 @@ class MANAGED ArtMethod FINAL : public Object {
 
   void UnregisterNative(Thread* self) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  static MemberOffset NativeMethodOffset() {
-    return OFFSET_OF_OBJECT_MEMBER(ArtMethod, entry_point_from_jni_);
+  static MemberOffset EntryPointFromInterpreterOffset(size_t pointer_size) {
+    return MemberOffset(PtrSizedFieldsOffset(pointer_size) + OFFSETOF_MEMBER(
+        PtrSizedFields, entry_point_from_interpreter_) / sizeof(void*) * pointer_size);
   }
 
-  const void* GetNativeMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    return GetFieldPtr<const void*>(NativeMethodOffset());
+  static MemberOffset EntryPointFromJniOffset(size_t pointer_size) {
+    return MemberOffset(PtrSizedFieldsOffset(pointer_size) + OFFSETOF_MEMBER(
+        PtrSizedFields, entry_point_from_jni_) / sizeof(void*) * pointer_size);
   }
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
-  void SetNativeMethod(const void*) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  static MemberOffset EntryPointFromQuickCompiledCodeOffset(size_t pointer_size) {
+    return MemberOffset(PtrSizedFieldsOffset(pointer_size) + OFFSETOF_MEMBER(
+        PtrSizedFields, entry_point_from_quick_compiled_code_) / sizeof(void*) * pointer_size);
+  }
+
+  void* GetEntryPointFromJni() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    CheckObjectSizeEqualsMirrorSize();
+    return GetEntryPointFromJniPtrSize(sizeof(void*));
+  }
+  ALWAYS_INLINE void* GetEntryPointFromJniPtrSize(size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    return GetFieldPtrWithSize<void*>(EntryPointFromJniOffset(pointer_size), pointer_size);
+  }
+
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  void SetEntryPointFromJni(const void* entrypoint) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    CheckObjectSizeEqualsMirrorSize();
+    SetEntryPointFromJniPtrSize<kVerifyFlags>(entrypoint, sizeof(void*));
+  }
+  template <VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  ALWAYS_INLINE void SetEntryPointFromJniPtrSize(const void* entrypoint, size_t pointer_size)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    SetFieldPtrWithSize<false, true, kVerifyFlags>(
+        EntryPointFromJniOffset(pointer_size), entrypoint, pointer_size);
+  }
 
   static MemberOffset GetMethodIndexOffset() {
     return OFFSET_OF_OBJECT_MEMBER(ArtMethod, method_index_);
@@ -408,6 +469,8 @@ class MANAGED ArtMethod FINAL : public Object {
   bool IsResolutionMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool IsImtConflictMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
+  bool IsImtUnimplementedMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   uintptr_t NativePcOffset(const uintptr_t pc) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   uintptr_t NativePcOffset(const uintptr_t pc, const void* quick_entry_point)
@@ -479,6 +542,21 @@ class MANAGED ArtMethod FINAL : public Object {
 
   ALWAYS_INLINE ArtMethod* GetInterfaceMethodIfProxy() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
+  static size_t SizeWithoutPointerFields(size_t pointer_size) {
+    size_t total = sizeof(ArtMethod) - sizeof(PtrSizedFields);
+#ifdef ART_METHOD_HAS_PADDING_FIELD_ON_64_BIT
+    // Add 4 bytes if 64 bit, otherwise 0.
+    total += pointer_size - sizeof(uint32_t);
+#endif
+    return total;
+  }
+
+  // Size of an instance of java.lang.reflect.ArtMethod not including its value array.
+  static size_t InstanceSize(size_t pointer_size) {
+    return SizeWithoutPointerFields(pointer_size) +
+        (sizeof(PtrSizedFields) / sizeof(void*)) * pointer_size;
+  }
+
  protected:
   // Field order required by test "ValidateFieldOrderOfJavaCppUnionClasses".
   // The class we are a part of.
@@ -489,31 +567,6 @@ class MANAGED ArtMethod FINAL : public Object {
 
   // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
   HeapReference<ObjectArray<Class>> dex_cache_resolved_types_;
-
-  // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-  HeapReference<ObjectArray<String>> dex_cache_strings_;
-
-  // Method dispatch from the interpreter invokes this pointer which may cause a bridge into
-  // compiled code.
-  uint64_t entry_point_from_interpreter_;
-
-  // Pointer to JNI function registered to this method, or a function to resolve the JNI function.
-  uint64_t entry_point_from_jni_;
-
-  // Method dispatch from portable compiled code invokes this pointer which may cause bridging into
-  // quick compiled code or the interpreter.
-#if defined(ART_USE_PORTABLE_COMPILER)
-  uint64_t entry_point_from_portable_compiled_code_;
-#endif
-
-  // Method dispatch from quick compiled code invokes this pointer which may cause bridging into
-  // portable compiled code or the interpreter.
-  uint64_t entry_point_from_quick_compiled_code_;
-
-  // Pointer to a data structure created by the compiler and used by the garbage collector to
-  // determine which registers hold live references to objects within the heap. Keyed by native PC
-  // offsets for the quick compiler and dex PCs for the portable.
-  uint64_t gc_map_;
 
   // Access flags; low 16 bits are defined by spec.
   uint32_t access_flags_;
@@ -533,12 +586,47 @@ class MANAGED ArtMethod FINAL : public Object {
   // ifTable.
   uint32_t method_index_;
 
+  // Fake padding field gets inserted here.
+
+  // Must be the last fields in the method.
+  struct PACKED(4) PtrSizedFields {
+    // Method dispatch from the interpreter invokes this pointer which may cause a bridge into
+    // compiled code.
+    void* entry_point_from_interpreter_;
+
+    // Pointer to JNI function registered to this method, or a function to resolve the JNI function.
+    void* entry_point_from_jni_;
+
+    // Method dispatch from quick compiled code invokes this pointer which may cause bridging into
+    // portable compiled code or the interpreter.
+    void* entry_point_from_quick_compiled_code_;
+
+    // Method dispatch from portable compiled code invokes this pointer which may cause bridging
+    // into quick compiled code or the interpreter. Last to simplify entrypoint logic.
+#if defined(ART_USE_PORTABLE_COMPILER)
+    void* entry_point_from_portable_compiled_code_;
+#endif
+  } ptr_sized_fields_;
+
   static GcRoot<Class> java_lang_reflect_ArtMethod_;
 
  private:
-  ObjectArray<ArtMethod>* GetDexCacheResolvedMethods() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  ALWAYS_INLINE void CheckObjectSizeEqualsMirrorSize() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  ObjectArray<Class>* GetDexCacheResolvedTypes() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  ALWAYS_INLINE ObjectArray<ArtMethod>* GetDexCacheResolvedMethods()
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
+  ALWAYS_INLINE ObjectArray<Class>* GetDexCacheResolvedTypes()
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
+  static size_t PtrSizedFieldsOffset(size_t pointer_size) {
+    size_t offset = OFFSETOF_MEMBER(ArtMethod, ptr_sized_fields_);
+#ifdef ART_METHOD_HAS_PADDING_FIELD_ON_64_BIT
+    // Add 4 bytes if 64 bit, otherwise 0.
+    offset += pointer_size - sizeof(uint32_t);
+#endif
+    return offset;
+  }
 
   friend struct art::ArtMethodOffsets;  // for verifying offset information
   DISALLOW_IMPLICIT_CONSTRUCTORS(ArtMethod);

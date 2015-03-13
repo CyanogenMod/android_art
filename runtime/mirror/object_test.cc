@@ -89,11 +89,18 @@ TEST_F(ObjectTest, AsmConstants) {
   EXPECT_EQ(STRING_OFFSET_OFFSET, String::OffsetOffset().Int32Value());
   EXPECT_EQ(STRING_DATA_OFFSET, Array::DataOffset(sizeof(uint16_t)).Int32Value());
 
-  EXPECT_EQ(METHOD_DEX_CACHE_METHODS_OFFSET, ArtMethod::DexCacheResolvedMethodsOffset().Int32Value());
+  EXPECT_EQ(METHOD_DEX_CACHE_METHODS_OFFSET,
+            ArtMethod::DexCacheResolvedMethodsOffset().Int32Value());
 #if defined(ART_USE_PORTABLE_COMPILER)
-  EXPECT_EQ(METHOD_PORTABLE_CODE_OFFSET, ArtMethod::EntryPointFromPortableCompiledCodeOffset().Int32Value());
+  EXPECT_EQ(METHOD_PORTABLE_CODE_OFFSET_32,
+            ArtMethod::EntryPointFromPortableCompiledCodeOffset(4).Int32Value());
+  EXPECT_EQ(METHOD_PORTABLE_CODE_OFFSET_64,
+            ArtMethod::EntryPointFromPortableCompiledCodeOffset(8).Int32Value());
 #endif
-  EXPECT_EQ(METHOD_QUICK_CODE_OFFSET, ArtMethod::EntryPointFromQuickCompiledCodeOffset().Int32Value());
+  EXPECT_EQ(METHOD_QUICK_CODE_OFFSET_32,
+            ArtMethod::EntryPointFromQuickCompiledCodeOffset(4).Int32Value());
+  EXPECT_EQ(METHOD_QUICK_CODE_OFFSET_64,
+            ArtMethod::EntryPointFromQuickCompiledCodeOffset(8).Int32Value());
 }
 
 TEST_F(ObjectTest, IsInSamePackage) {
@@ -707,6 +714,15 @@ TEST_F(ObjectTest, FindStaticField) {
   // TODO: test static fields via superclasses.
   // TODO: test static fields via interfaces.
   // TODO: test that interfaces trump superclasses.
+}
+
+TEST_F(ObjectTest, IdentityHashCode) {
+  // Regression test for b/19046417 which had an infinite loop if the
+  // (seed & LockWord::kHashMask) == 0. seed 0 triggered the infinite loop since we did the check
+  // before the CAS which resulted in the same seed the next loop iteration.
+  mirror::Object::SetHashCodeSeed(0);
+  int32_t hash_code = mirror::Object::GenerateIdentityHashCode();
+  EXPECT_NE(hash_code, 0);
 }
 
 }  // namespace mirror

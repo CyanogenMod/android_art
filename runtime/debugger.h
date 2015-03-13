@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "gc_root.h"
 #include "jdwp/jdwp.h"
 #include "jni.h"
 #include "jvalue.h"
@@ -45,6 +46,7 @@ class Throwable;
 class AllocRecord;
 class ObjectRegistry;
 class ScopedObjectAccessUnchecked;
+class StackVisitor;
 class Thread;
 class ThrowLocation;
 
@@ -86,7 +88,7 @@ struct DebugInvokeReq {
   Mutex lock DEFAULT_MUTEX_ACQUIRED_AFTER;
   ConditionVariable cond GUARDED_BY(lock);
 
-  void VisitRoots(RootCallback* callback, void* arg, uint32_t tid, RootType root_type)
+  void VisitRoots(RootCallback* callback, void* arg, const RootInfo& root_info)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   void Clear();
@@ -121,7 +123,7 @@ struct SingleStepControl {
   // single-step depth.
   int stack_depth;
 
-  void VisitRoots(RootCallback* callback, void* arg, uint32_t tid, RootType root_type)
+  void VisitRoots(RootCallback* callback, void* arg, const RootInfo& root_info)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool ContainsDexPc(uint32_t dex_pc) const;
@@ -245,7 +247,9 @@ class Dbg {
    */
   static int64_t LastDebuggerActivity();
 
-  static void UndoDebuggerSuspensions();
+  static void UndoDebuggerSuspensions()
+    LOCKS_EXCLUDED(Locks::thread_list_lock_,
+                   Locks::thread_suspend_count_lock_);
 
   /*
    * Class, Object, Array
@@ -458,7 +462,9 @@ class Dbg {
   static void SuspendVM()
       LOCKS_EXCLUDED(Locks::thread_list_lock_,
                      Locks::thread_suspend_count_lock_);
-  static void ResumeVM();
+  static void ResumeVM()
+      LOCKS_EXCLUDED(Locks::thread_list_lock_,
+                     Locks::thread_suspend_count_lock_);
   static JDWP::JdwpError SuspendThread(JDWP::ObjectId thread_id, bool request_suspension = true)
       LOCKS_EXCLUDED(Locks::mutator_lock_,
                      Locks::thread_list_lock_,
@@ -475,12 +481,10 @@ class Dbg {
       LOCKS_EXCLUDED(Locks::thread_list_lock_,
                      Locks::thread_suspend_count_lock_)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  static JDWP::JdwpError GetLocalValue(JDWP::ObjectId thread_id, JDWP::FrameId frame_id, int slot,
-                                       JDWP::JdwpTag tag, uint8_t* buf, size_t expectedLen)
+  static JDWP::JdwpError GetLocalValues(JDWP::Request* request, JDWP::ExpandBuf* pReply)
       LOCKS_EXCLUDED(Locks::thread_list_lock_)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  static JDWP::JdwpError SetLocalValue(JDWP::ObjectId thread_id, JDWP::FrameId frame_id, int slot,
-                                       JDWP::JdwpTag tag, uint64_t value, size_t width)
+  static JDWP::JdwpError SetLocalValues(JDWP::Request* request)
       LOCKS_EXCLUDED(Locks::thread_list_lock_)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
@@ -518,6 +522,9 @@ class Dbg {
                              int event_flags, const JValue* return_value)
       LOCKS_EXCLUDED(Locks::breakpoint_lock_)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
+  // Indicates whether we need deoptimization for debugging.
+  static bool RequiresDeoptimization();
 
   // Records deoptimization request in the queue.
   static void RequestDeoptimization(const DeoptimizationRequest& req)
@@ -641,6 +648,16 @@ class Dbg {
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
  private:
+  static JDWP::JdwpError GetLocalValue(const StackVisitor& visitor,
+                                       ScopedObjectAccessUnchecked& soa, int slot,
+                                       JDWP::JdwpTag tag, uint8_t* buf, size_t width)
+      LOCKS_EXCLUDED(Locks::thread_list_lock_)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  static JDWP::JdwpError SetLocalValue(StackVisitor& visitor, int slot, JDWP::JdwpTag tag,
+                                       uint64_t value, size_t width)
+      LOCKS_EXCLUDED(Locks::thread_list_lock_)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
   static void DdmBroadcast(bool connect) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   static void PostThreadStartOrStop(Thread*, uint32_t)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);

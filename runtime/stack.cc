@@ -112,6 +112,9 @@ uint32_t StackVisitor::GetDexPc(bool abort_on_failure) const {
   }
 }
 
+extern "C" mirror::Object* artQuickGetProxyThisObject(StackReference<mirror::ArtMethod>* sp)
+    SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
 mirror::Object* StackVisitor::GetThisObject() const {
   mirror::ArtMethod* m = GetMethod();
   if (m->IsStatic()) {
@@ -119,8 +122,14 @@ mirror::Object* StackVisitor::GetThisObject() const {
   } else if (m->IsNative()) {
     if (cur_quick_frame_ != NULL) {
       HandleScope* hs = reinterpret_cast<HandleScope*>(
-          reinterpret_cast<char*>(cur_quick_frame_) + m->GetHandleScopeOffsetInBytes());
+          reinterpret_cast<char*>(cur_quick_frame_) + m->GetHandleScopeOffsetInBytes().SizeValue());
       return hs->GetReference(0);
+    } else {
+      return cur_shadow_frame_->GetVRegReference(0);
+    }
+  } else if (m->IsProxyMethod()) {
+    if (cur_quick_frame_ != nullptr) {
+      return artQuickGetProxyThisObject(cur_quick_frame_);
     } else {
       return cur_shadow_frame_->GetVRegReference(0);
     }
@@ -147,9 +156,9 @@ bool StackVisitor::GetVReg(mirror::ArtMethod* m, uint16_t vreg, VRegKind kind,
   if (cur_quick_frame_ != nullptr) {
     DCHECK(context_ != nullptr);  // You can't reliably read registers without a context.
     DCHECK(m == GetMethod());
-    const void* code_pointer = m->GetQuickOatCodePointer();
+    const void* code_pointer = m->GetQuickOatCodePointer(sizeof(void*));
     DCHECK(code_pointer != nullptr);
-    const VmapTable vmap_table(m->GetVmapTable(code_pointer));
+    const VmapTable vmap_table(m->GetVmapTable(code_pointer, sizeof(void*)));
     QuickMethodFrameInfo frame_info = m->GetQuickFrameInfo(code_pointer);
     uint32_t vmap_offset;
     // TODO: IsInContext stops before spotting floating point registers.
@@ -201,9 +210,9 @@ bool StackVisitor::GetVRegPair(mirror::ArtMethod* m, uint16_t vreg, VRegKind kin
   if (cur_quick_frame_ != nullptr) {
     DCHECK(context_ != nullptr);  // You can't reliably read registers without a context.
     DCHECK(m == GetMethod());
-    const void* code_pointer = m->GetQuickOatCodePointer();
+    const void* code_pointer = m->GetQuickOatCodePointer(sizeof(void*));
     DCHECK(code_pointer != nullptr);
-    const VmapTable vmap_table(m->GetVmapTable(code_pointer));
+    const VmapTable vmap_table(m->GetVmapTable(code_pointer, sizeof(void*)));
     QuickMethodFrameInfo frame_info = m->GetQuickFrameInfo(code_pointer);
     uint32_t vmap_offset_lo, vmap_offset_hi;
     // TODO: IsInContext stops before spotting floating point registers.
@@ -248,9 +257,9 @@ bool StackVisitor::SetVReg(mirror::ArtMethod* m, uint16_t vreg, uint32_t new_val
   if (cur_quick_frame_ != nullptr) {
     DCHECK(context_ != nullptr);  // You can't reliably write registers without a context.
     DCHECK(m == GetMethod());
-    const void* code_pointer = m->GetQuickOatCodePointer();
+    const void* code_pointer = m->GetQuickOatCodePointer(sizeof(void*));
     DCHECK(code_pointer != nullptr);
-    const VmapTable vmap_table(m->GetVmapTable(code_pointer));
+    const VmapTable vmap_table(m->GetVmapTable(code_pointer, sizeof(void*)));
     QuickMethodFrameInfo frame_info = m->GetQuickFrameInfo(code_pointer);
     uint32_t vmap_offset;
     // TODO: IsInContext stops before spotting floating point registers.
@@ -312,9 +321,9 @@ bool StackVisitor::SetVRegPair(mirror::ArtMethod* m, uint16_t vreg, uint64_t new
   if (cur_quick_frame_ != nullptr) {
     DCHECK(context_ != nullptr);  // You can't reliably write registers without a context.
     DCHECK(m == GetMethod());
-    const void* code_pointer = m->GetQuickOatCodePointer();
+    const void* code_pointer = m->GetQuickOatCodePointer(sizeof(void*));
     DCHECK(code_pointer != nullptr);
-    const VmapTable vmap_table(m->GetVmapTable(code_pointer));
+    const VmapTable vmap_table(m->GetVmapTable(code_pointer, sizeof(void*)));
     QuickMethodFrameInfo frame_info = m->GetQuickFrameInfo(code_pointer);
     uint32_t vmap_offset_lo, vmap_offset_hi;
     // TODO: IsInContext stops before spotting floating point registers.
@@ -597,6 +606,13 @@ void StackVisitor::WalkStack(bool include_transitions) {
   if (num_frames_ != 0) {
     CHECK_EQ(cur_depth_, num_frames_);
   }
+}
+
+void JavaFrameRootInfo::Describe(std::ostream& os) const {
+  const StackVisitor* visitor = stack_visitor_;
+  CHECK(visitor != nullptr);
+  os << "Type=" << GetType() << " thread_id=" << GetThreadId() << " location=" <<
+      visitor->DescribeLocation() << " vreg=" << vreg_;
 }
 
 }  // namespace art

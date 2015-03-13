@@ -133,6 +133,10 @@ class Runtime {
     return compiler_options_;
   }
 
+  void AddCompilerOption(std::string option) {
+    compiler_options_.push_back(option);
+  }
+
   const std::vector<std::string>& GetImageCompilerOptions() const {
     return image_compiler_options_;
   }
@@ -310,6 +314,7 @@ class Runtime {
 
   // Returns a special method that calls into a trampoline for runtime imt conflicts.
   mirror::ArtMethod* GetImtConflictMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  mirror::ArtMethod* GetImtUnimplementedMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool HasImtConflictMethod() const {
     return !imt_conflict_method_.IsNull();
@@ -317,6 +322,9 @@ class Runtime {
 
   void SetImtConflictMethod(mirror::ArtMethod* method) {
     imt_conflict_method_ = GcRoot<mirror::ArtMethod>(method);
+  }
+  void SetImtUnimplementedMethod(mirror::ArtMethod* method) {
+    imt_unimplemented_method_ = GcRoot<mirror::ArtMethod>(method);
   }
 
   mirror::ArtMethod* CreateImtConflictMethod() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -515,6 +523,9 @@ class Runtime {
   GcRoot<mirror::Throwable> pre_allocated_NoClassDefFoundError_;
   GcRoot<mirror::ArtMethod> resolution_method_;
   GcRoot<mirror::ArtMethod> imt_conflict_method_;
+  // Unresolved method has the same behavior as the conflict method, it is used by the class linker
+  // for differentiating between unfilled imt slots vs conflict slots in superclasses.
+  GcRoot<mirror::ArtMethod> imt_unimplemented_method_;
   GcRoot<mirror::ObjectArray<mirror::ArtMethod>> default_imt_;
 
   InstructionSet instruction_set_;
@@ -638,14 +649,16 @@ class Runtime {
   bool implicit_so_checks_;         // StackOverflow checks are implicit.
   bool implicit_suspend_checks_;    // Thread suspension checks are implicit.
 
-  // The filename to the native bridge library. If this is not empty the native bridge will be
-  // initialized and loaded from the given file (initialized and available). An empty value means
-  // that there's no native bridge (initialized but not available).
+  // Whether or not a native bridge has been loaded.
   //
   // The native bridge allows running native code compiled for a foreign ISA. The way it works is,
   // if standard dlopen fails to load native library associated with native activity, it calls to
   // the native bridge to load it and then gets the trampoline for the entry to native activity.
-  std::string native_bridge_library_filename_;
+  //
+  // The option 'native_bridge_library_filename' specifies the name of the native bridge.
+  // When non-empty the native bridge will be loaded from the given file. An empty value means
+  // that there's no native bridge.
+  bool is_native_bridge_loaded_;
 
   DISALLOW_COPY_AND_ASSIGN(Runtime);
 };

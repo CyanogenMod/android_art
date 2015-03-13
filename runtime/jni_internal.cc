@@ -437,9 +437,7 @@ class SharedLibrary {
   }
 
   void VisitRoots(RootCallback* visitor, void* arg) {
-    if (!class_loader_.IsNull()) {
-      class_loader_.VisitRoot(visitor, arg, 0, kRootVMInternal);
-    }
+    class_loader_.VisitRootIfNonNull(visitor, arg, RootInfo(kRootVMInternal));
   }
 
  private:
@@ -622,7 +620,7 @@ class JNI {
     ScopedObjectAccess soa(env);
     mirror::ArtMethod* m = soa.DecodeMethod(mid);
     CHECK(!kMovingMethods);
-    jobject art_method = soa.AddLocalReference<jobject>(m);
+    ScopedLocalRef<jobject> art_method(env, soa.AddLocalReference<jobject>(m));
     jobject reflect_method;
     if (m->IsConstructor()) {
       reflect_method = env->AllocObject(WellKnownClasses::java_lang_reflect_Constructor);
@@ -633,7 +631,7 @@ class JNI {
       return nullptr;
     }
     SetObjectField(env, reflect_method,
-                   WellKnownClasses::java_lang_reflect_AbstractMethod_artMethod, art_method);
+                   WellKnownClasses::java_lang_reflect_AbstractMethod_artMethod, art_method.get());
     return reflect_method;
   }
 
@@ -641,13 +639,13 @@ class JNI {
     CHECK_NON_NULL_ARGUMENT(fid);
     ScopedObjectAccess soa(env);
     mirror::ArtField* f = soa.DecodeField(fid);
-    jobject art_field = soa.AddLocalReference<jobject>(f);
+    ScopedLocalRef<jobject> art_field(env, soa.AddLocalReference<jobject>(f));
     jobject reflect_field = env->AllocObject(WellKnownClasses::java_lang_reflect_Field);
     if (env->ExceptionCheck()) {
       return nullptr;
     }
     SetObjectField(env, reflect_field,
-                   WellKnownClasses::java_lang_reflect_Field_artField, art_field);
+                   WellKnownClasses::java_lang_reflect_Field_artField, art_field.get());
     return reflect_field;
   }
 
@@ -2528,7 +2526,9 @@ class JNI {
   }
 
   static jobjectRefType GetObjectRefType(JNIEnv* env, jobject java_object) {
-    CHECK_NON_NULL_ARGUMENT_RETURN(java_object, JNIInvalidRefType);
+    if (java_object == nullptr) {
+      return JNIInvalidRefType;
+    }
 
     // Do we definitely know what kind of reference this is?
     IndirectRef ref = reinterpret_cast<IndirectRef>(java_object);
@@ -3414,7 +3414,7 @@ void JavaVMExt::VisitRoots(RootCallback* callback, void* arg) {
   Thread* self = Thread::Current();
   {
     ReaderMutexLock mu(self, globals_lock);
-    globals.VisitRoots(callback, arg, 0, kRootJNIGlobal);
+    globals.VisitRoots(callback, arg, RootInfo(kRootJNIGlobal));
   }
   {
     MutexLock mu(self, libraries_lock);

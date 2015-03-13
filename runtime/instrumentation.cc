@@ -918,10 +918,10 @@ void Instrumentation::DisableMethodTracing() {
   ConfigureStubs(false, false);
 }
 
-const void* Instrumentation::GetQuickCodeFor(mirror::ArtMethod* method) const {
+const void* Instrumentation::GetQuickCodeFor(mirror::ArtMethod* method, size_t pointer_size) const {
   Runtime* runtime = Runtime::Current();
   if (LIKELY(!instrumentation_stubs_installed_)) {
-    const void* code = method->GetEntryPointFromQuickCompiledCode();
+    const void* code = method->GetEntryPointFromQuickCompiledCodePtrSize(pointer_size);
     DCHECK(code != nullptr);
     ClassLinker* class_linker = runtime->GetClassLinker();
     if (LIKELY(code != class_linker->GetQuickResolutionTrampoline()) &&
@@ -1088,15 +1088,14 @@ TwoWordReturn Instrumentation::PopInstrumentationStackFrame(Thread* self, uintpt
   // back to an upcall.
   NthCallerVisitor visitor(self, 1, true);
   visitor.WalkStack(true);
-  bool deoptimize = (visitor.caller != NULL) &&
+  bool deoptimize = (visitor.caller != nullptr) &&
                     (interpreter_stubs_installed_ || IsDeoptimized(visitor.caller));
-  if (deoptimize && kVerboseInstrumentation) {
-    LOG(INFO) << "Deoptimizing into " << PrettyMethod(visitor.caller);
-  }
   if (deoptimize) {
     if (kVerboseInstrumentation) {
-      LOG(INFO) << "Deoptimizing from " << PrettyMethod(method)
-                << " result is " << std::hex << return_value.GetJ();
+      LOG(INFO) << StringPrintf("Deoptimizing %s by returning from %s with result %#" PRIx64 " in ",
+                                PrettyMethod(visitor.caller).c_str(),
+                                PrettyMethod(method).c_str(),
+                                return_value.GetJ()) << *self;
     }
     self->SetDeoptimizationReturnValue(return_value);
     return GetTwoWordSuccessValue(*return_pc,
@@ -1142,7 +1141,7 @@ void Instrumentation::VisitRoots(RootCallback* callback, void* arg) {
     return;
   }
   for (auto pair : deoptimized_methods_) {
-    pair.second.VisitRoot(callback, arg, 0, kRootVMInternal);
+    pair.second.VisitRoot(callback, arg, RootInfo(kRootVMInternal));
   }
 }
 

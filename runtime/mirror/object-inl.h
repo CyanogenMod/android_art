@@ -402,8 +402,7 @@ inline size_t Object::SizeOf() {
   }
   DCHECK_GE(result, sizeof(Object))
       << " class=" << PrettyTypeOf(GetClass<kNewFlags, kReadBarrierOption>());
-  DCHECK(!(IsArtField<kNewFlags, kReadBarrierOption>())  || result == sizeof(ArtField));
-  DCHECK(!(IsArtMethod<kNewFlags, kReadBarrierOption>()) || result == sizeof(ArtMethod));
+  DCHECK(!(IsArtField<kNewFlags, kReadBarrierOption>()) || result == sizeof(ArtField));
   return result;
 }
 
@@ -765,13 +764,19 @@ inline void Object::VisitFieldsReferences(uint32_t ref_offsets, const Visitor& v
         klass = kIsStatic ? nullptr : klass->GetSuperClass()) {
       size_t num_reference_fields =
           kIsStatic ? klass->NumReferenceStaticFields() : klass->NumReferenceInstanceFields();
+      if (num_reference_fields == 0u) {
+        continue;
+      }
+      MemberOffset field_offset = kIsStatic
+          ? klass->GetFirstReferenceStaticFieldOffset()
+          : klass->GetFirstReferenceInstanceFieldOffset();
       for (size_t i = 0; i < num_reference_fields; ++i) {
-        mirror::ArtField* field = kIsStatic ? klass->GetStaticField(i) : klass->GetInstanceField(i);
-        MemberOffset field_offset = field->GetOffset();
         // TODO: Do a simpler check?
         if (kVisitClass || field_offset.Uint32Value() != ClassOffset().Uint32Value()) {
           visitor(this, field_offset, kIsStatic);
         }
+        field_offset = MemberOffset(field_offset.Uint32Value() +
+                                    sizeof(mirror::HeapReference<mirror::Object>));
       }
     }
   }
@@ -811,7 +816,6 @@ inline void Object::VisitReferences(const Visitor& visitor,
     }
   }
 }
-
 }  // namespace mirror
 }  // namespace art
 

@@ -21,7 +21,7 @@
 
 // Value loaded into rSUSPEND for quick. When this value is counted down to zero we do a suspend
 // check.
-#define SUSPEND_CHECK_INTERVAL (1000)
+#define SUSPEND_CHECK_INTERVAL (96)
 
 // Offsets within java.lang.Object.
 #define CLASS_OFFSET 0
@@ -44,13 +44,12 @@
 
 // Offsets within java.lang.Method.
 #define METHOD_DEX_CACHE_METHODS_OFFSET 12
-#if defined(ART_USE_PORTABLE_COMPILER)
-#define METHOD_PORTABLE_CODE_OFFSET 40
-#define METHOD_QUICK_CODE_OFFSET 48
-#else
-#define METHOD_PORTABLE_CODE_OFFSET 40
-#define METHOD_QUICK_CODE_OFFSET 40
-#endif  // ART_USE_PORTABLE_COMPILER
+
+// Verified by object_test.
+#define METHOD_QUICK_CODE_OFFSET_32 44
+#define METHOD_QUICK_CODE_OFFSET_64 56
+#define METHOD_PORTABLE_CODE_OFFSET_32 56
+#define METHOD_PORTABLE_CODE_OFFSET_64 72
 
 #else
 

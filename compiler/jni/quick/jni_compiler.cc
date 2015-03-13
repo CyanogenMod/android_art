@@ -308,7 +308,9 @@ CompiledMethod* ArtJniCompileMethodInternal(CompilerDriver* driver,
   }
 
   // 9. Plant call to native code associated with method.
-  __ Call(main_jni_conv->MethodStackOffset(), mirror::ArtMethod::NativeMethodOffset(),
+  MemberOffset jni_entrypoint_offset = mirror::ArtMethod::EntryPointFromJniOffset(
+      InstructionSetPointerSize(instruction_set));
+  __ Call(main_jni_conv->MethodStackOffset(), jni_entrypoint_offset,
           mr_conv->InterproceduralScratchRegister());
 
   // 10. Fix differences in result widths.
@@ -432,12 +434,12 @@ CompiledMethod* ArtJniCompileMethodInternal(CompilerDriver* driver,
   std::vector<uint8_t> managed_code(cs);
   MemoryRegion code(&managed_code[0], managed_code.size());
   __ FinalizeInstructions(code);
-  return new CompiledMethod(driver,
-                            instruction_set,
-                            managed_code,
-                            frame_size,
-                            main_jni_conv->CoreSpillMask(),
-                            main_jni_conv->FpSpillMask());
+  return CompiledMethod::SwapAllocCompiledMethod(driver,
+                                                 instruction_set,
+                                                 ArrayRef<const uint8_t>(managed_code),
+                                                 frame_size,
+                                                 main_jni_conv->CoreSpillMask(),
+                                                 main_jni_conv->FpSpillMask());
 }
 
 // Copy a single parameter from the managed to the JNI calling convention
