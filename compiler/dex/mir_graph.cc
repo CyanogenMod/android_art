@@ -133,6 +133,11 @@ MIRGraph::MIRGraph(CompilationUnit* cu, ArenaAllocator* arena)
 
 MIRGraph::~MIRGraph() {
   STLDeleteElements(&m_units_);
+  CleanupGraphData();
+}
+
+void MIRGraph::CleanupGraphData()
+{
 }
 
 /*
