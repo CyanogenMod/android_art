@@ -45,6 +45,7 @@
 #include "runtime.h"
 #include "scoped_thread_state_change.h"
 #include "thread.h"
+#include "zlib.h"
 #include "utils.h"
 
 namespace art {
@@ -800,6 +801,16 @@ static void Usage(const char *fmt, ...) {
   UsageError("  --input-oat-fd=<file-descriptor>: Specifies the file-descriptor of the oat file");
   UsageError("      to be patched.");
   UsageError("");
+  UsageError("  --input-oat-gz-file=<file.oat.gz>: Specifies the exact filename of");
+  UsageError("      the gzip-compressed oat file to be patched.");
+  UsageError("");
+  UsageError("  --input-oat-gz-fd=<file-descriptor>: Specifies the file-descriptor of");
+  UsageError("      the gzip-compressed oat file to be patched.");
+  UsageError("");
+  UsageError("  --swap-file=<file-name>: Specifies a temporary gzip file.");
+  UsageError("");
+  UsageError("  --swap-fd=<file-descriptor>: Specifies a temporary gzip file descriptor.");
+  UsageError("");
   UsageError("  --input-oat-location=<file.oat>: Specifies the 'location' to read the patched");
   UsageError("      oat file from. If used one must also supply the --instruction-set");
   UsageError("");
@@ -908,6 +919,67 @@ static bool FinishFile(File* file, bool close) {
   }
 }
 
+static int Inflate(int input_oat_gz_fd, const std::string& input_oat_gz_filename, int tmp_fd, std::string* err) {
+  gzFile in_gzfile = input_oat_gz_fd != -1 ? gzdopen(input_oat_gz_fd, "rb") :
+                                             gzopen(input_oat_gz_filename.c_str(), "rb");
+  if (in_gzfile == nullptr) {
+    *err = input_oat_gz_fd != -1 ?
+              StringPrintf("Could not open gzip file fd=%d: %s",
+                           input_oat_gz_fd, strerror(errno)) :
+              StringPrintf("Could not open gzip file %s: %s",
+                           input_oat_gz_filename.c_str(), strerror(errno));
+    return -1;
+  }
+
+  int out_fd = dup(tmp_fd);
+  if (out_fd == -1) {
+    *err = strerror(errno);
+    return -1;
+  }
+
+  constexpr size_t INFLATE_BUFLEN = 16384;
+  std::unique_ptr<File> out_file(new File(out_fd, false));
+  std::unique_ptr<Byte[]> buf(new Byte[INFLATE_BUFLEN]);
+  int len;
+
+  while (0 < (len = gzread(in_gzfile, buf.get(), INFLATE_BUFLEN)))  {
+    if (!out_file->WriteFully(buf.get(), len)) {
+      *err = StringPrintf("Could not write to fd=%d: %s", tmp_fd, out_file->GetPath().c_str());
+      gzclose(in_gzfile);
+      return -1;
+    }
+  }
+
+  int errnum;
+  const char* gzerrstr = gzerror(in_gzfile, &errnum);
+
+  if (len < 0 || errnum != Z_OK) {
+    *err = input_oat_gz_fd != -1 ?
+    StringPrintf("Could not inflate gzip file fd=%d: %s",
+                 input_oat_gz_fd, gzerrstr) :
+    StringPrintf("Could not inflate gzip file %s: %s",
+                 input_oat_gz_filename.c_str(), gzerrstr);
+    gzclose(in_gzfile);
+    return -1;
+  }
+
+  if ((errnum = gzclose(in_gzfile)) != Z_OK) {
+    *err = input_oat_gz_fd != -1 ?
+      StringPrintf("Could not close gzip file fd=%d: gzclose() returned %d",
+                   input_oat_gz_fd, errnum) :
+      StringPrintf("Could not close gzip file %s: gzclose() returned %d",
+                   input_oat_gz_filename.c_str(), errnum);
+  }
+
+  if (out_file->Flush() != 0) {
+    *err = StringPrintf("Could not flush tmp file fd=%d", tmp_fd);
+    return -1;
+  }
+
+  out_file->DisableAutoClose();
+  return out_fd;
+}
+
 static int patchoat(int argc, char **argv) {
   InitLogging(argv);
   MemMap::Init();
@@ -932,8 +1004,12 @@ static int patchoat(int argc, char **argv) {
   bool isa_set = false;
   InstructionSet isa = kNone;
   std::string input_oat_filename;
+  std::string input_oat_gz_filename;
   std::string input_oat_location;
   int input_oat_fd = -1;
+  int input_oat_gz_fd = -1;
+  std::string swap_file_name;
+  int swap_fd = -1;
   bool have_input_oat = false;
   std::string input_image_location;
   std::string output_oat_filename;
@@ -968,19 +1044,29 @@ static int patchoat(int argc, char **argv) {
       }
     } else if (option.starts_with("--input-oat-location=")) {
       if (have_input_oat) {
-        Usage("Only one of --input-oat-file, --input-oat-location and --input-oat-fd may be used.");
+        Usage("Only one of --input-oat-file, --input-oat-gz-file, --input-oat-location, "
+              "--input-oat-fd and --input-oat-gz-fd may be used.");
       }
       have_input_oat = true;
       input_oat_location = option.substr(strlen("--input-oat-location=")).data();
     } else if (option.starts_with("--input-oat-file=")) {
       if (have_input_oat) {
-        Usage("Only one of --input-oat-file, --input-oat-location and --input-oat-fd may be used.");
+        Usage("Only one of --input-oat-file, --input-oat-gz-file, --input-oat-location, "
+              "--input-oat-fd and --input-oat-gz-fd may be used.");
       }
       have_input_oat = true;
       input_oat_filename = option.substr(strlen("--input-oat-file=")).data();
+    } else if (option.starts_with("--input-oat-gz-file=")) {
+      if (have_input_oat) {
+        Usage("Only one of --input-oat-file, --input-oat-gz-file, --input-oat-location, "
+              "--input-oat-fd and --input-oat-gz-fd may be used.");
+      }
+      have_input_oat = true;
+      input_oat_gz_filename = option.substr(strlen("--input-oat-gz-file=")).data();
     } else if (option.starts_with("--input-oat-fd=")) {
       if (have_input_oat) {
-        Usage("Only one of --input-oat-file, --input-oat-location and --input-oat-fd may be used.");
+        Usage("Only one of --input-oat-file, --input-oat-gz-file, --input-oat-location, "
+              "--input-oat-fd and --input-oat-gz-fd may be used.");
       }
       have_input_oat = true;
       const char* oat_fd_str = option.substr(strlen("--input-oat-fd=")).data();
@@ -989,6 +1075,29 @@ static int patchoat(int argc, char **argv) {
       }
       if (input_oat_fd < 0) {
         Usage("--input-oat-fd pass a negative value %d", input_oat_fd);
+      }
+    } else if (option.starts_with("--input-oat-gz-fd=")) {
+      if (have_input_oat) {
+        Usage("Only one of --input-oat-file, --input-oat-gz-file, --input-oat-location, "
+              "--input-oat-fd and --input-oat-gz-fd may be used.");
+      }
+      have_input_oat = true;
+      const char* oat_gz_fd_str = option.substr(strlen("--input-oat-gz-fd=")).data();
+      if (!ParseInt(oat_gz_fd_str, &input_oat_gz_fd)) {
+        Usage("Failed to parse --input-oat-fd argument '%s' as an integer", oat_gz_fd_str);
+      }
+      if (input_oat_gz_fd < 0) {
+        Usage("--input-oat-gz-fd pass a negative value %d", input_oat_gz_fd);
+      }
+    } else if (option.starts_with("--swap-file=")) {
+      swap_file_name = option.substr(strlen("--swap-file=")).data();
+    } else if (option.starts_with("--swap-fd=")) {
+      const char* swap_fd_str = option.substr(strlen("--swap-fd=")).data();
+      if (!ParseInt(swap_fd_str, &swap_fd)) {
+        Usage("Failed to parse --swap-fd argument '%s' as an integer", swap_fd_str);
+      }
+      if (swap_fd < 0) {
+        Usage("--swap-fd passed a negative value %d", swap_fd);
       }
     } else if (option.starts_with("--input-image-location=")) {
       input_image_location = option.substr(strlen("--input-image-location=")).data();
@@ -1088,6 +1197,11 @@ static int patchoat(int argc, char **argv) {
     Usage("Either both input and output image must be supplied or niether must be.");
   }
 
+  if ((input_oat_gz_fd != -1 || !input_oat_gz_filename.empty()) !=
+      (swap_fd != -1 || !swap_file_name.empty())) {
+    Usage("Either both input gzip and swap must be supplied or niether must be.");
+  }
+
   // We know we have both the input and output so rename for clarity.
   bool have_image_files = have_output_image;
   bool have_oat_files = have_output_oat;
@@ -1111,6 +1225,26 @@ static int patchoat(int argc, char **argv) {
       LOG(INFO) << "Using input-oat-file " << input_oat_filename;
     }
   }
+
+  // Swap file handling.
+  //
+  // If the swap fd is not -1, we assume this is the file descriptor of an open but unlinked file
+  // that we can use for swap.
+  //
+  // If the swap fd is -1 and we have a swap-file string, open the given file as a swap file. We
+  // will immediately unlink to satisfy the swap fd assumption.
+  std::unique_ptr<File> swap_file;
+  if (swap_fd == -1 && !swap_file_name.empty()) {
+    swap_file.reset(OS::CreateEmptyFile(swap_file_name.c_str()));
+    if (swap_file.get() == nullptr) {
+      PLOG(ERROR) << "Failed to create swap file: " << swap_file_name;
+      return EXIT_FAILURE;
+    }
+    swap_fd = swap_file->Fd();
+    swap_file->MarkUnchecked();  // We don't want to track this, it will be unlinked immediately.
+    unlink(swap_file_name.c_str());
+  }
+
   if (!patched_image_location.empty()) {
     if (!isa_set) {
       Usage("specifying a location requires specifying an instruction set");
@@ -1189,8 +1323,16 @@ static int patchoat(int argc, char **argv) {
   }
 
   if (have_oat_files) {
+    if (input_oat_gz_fd != -1 || !input_oat_gz_filename.empty()) {
+      std::string err;
+      input_oat_fd = Inflate(input_oat_gz_fd, input_oat_gz_filename, swap_fd, &err);
+      if (input_oat_fd == -1) {
+        LOG(ERROR) << "Failed to inflate input file: " << err;
+      }
+    }
     if (input_oat_fd != -1) {
       if (input_oat_filename.empty()) {
+        // TODO: make sure this will not be used to create symlink if input_oat_fd is PIC
         input_oat_filename = "input-oat-file";
       }
       input_oat.reset(new File(input_oat_fd, input_oat_filename, false));
