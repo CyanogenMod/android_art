@@ -44,7 +44,8 @@ class PatchOat {
   // Patch only the oat file
   static bool Patch(File* oat_in, off_t delta, File* oat_out, TimingLogger* timings,
                     bool output_oat_opened_from_fd,  // Was this using --oatput-oat-fd ?
-                    bool new_oat_out);               // Output oat was a new file created by us?
+                    bool new_oat_out,                // Output oat was a new file created by us?
+                    bool input_oat_filename_dummy);  // Input cannot be symlinked
 
   // Patch only the image (art file)
   static bool Patch(const std::string& art_location, off_t delta, File* art_out, InstructionSet isa,
@@ -55,7 +56,8 @@ class PatchOat {
                     off_t delta, File* oat_out, File* art_out, InstructionSet isa,
                     TimingLogger* timings,
                     bool output_oat_opened_from_fd,  // Was this using --oatput-oat-fd ?
-                    bool new_oat_out);               // Output oat was a new file created by us?
+                    bool new_oat_out,                // Output oat was a new file created by us?
+                    bool input_oat_filename_dummy);  // Input cannot be symlinked
 
  private:
   // Takes ownership only of the ElfFile. All other pointers are only borrowed.
@@ -87,10 +89,11 @@ class PatchOat {
 
   // Attempt to replace the file with a symlink
   // Returns false if it fails
-  static bool ReplaceOatFileWithSymlink(const std::string& input_oat_filename,
-                                        const std::string& output_oat_filename,
-                                        bool output_oat_opened_from_fd,
-                                        bool new_oat_out);  // Output oat was newly created?
+  static bool SymlinkOrCopy(File* input_oat,
+                            File* output_oat,
+                            bool output_oat_opened_from_fd,
+                            bool new_oat_out,  // Output oat was newly created?
+                            bool make_copy);
 
   static void BitmapCallback(mirror::Object* obj, void* arg)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
