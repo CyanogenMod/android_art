@@ -198,7 +198,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) OVERRIDE;
     void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
     void Cleanup() QC_WEAK;
-    //void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir);
+    // void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir);
 
   private:
     void GenNegLong(RegLocation rl_dest, RegLocation rl_src);
@@ -242,8 +242,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     friend class QCArmMir2Lir;
 
     public:
-    QCArmMir2Lir * qcm2l ;
-
+    QCArmMir2Lir * qcm2l;
 };
 
 }  // namespace art

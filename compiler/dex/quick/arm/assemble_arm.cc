@@ -1073,7 +1073,7 @@ void ArmMir2Lir::InsertFixupBefore(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
 
 uint32_t ArmMir2Lir::ProcessMoreEncodings(const ArmEncodingMap* encoder, int i, uint32_t operand) {
     LOG(FATAL) << "Bad fmt:" << encoder->field_loc[i].kind;
-    uint32_t value=0;
+    uint32_t value = 0;
     return value;
 }
 
