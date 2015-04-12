@@ -136,8 +136,7 @@ MIRGraph::~MIRGraph() {
   CleanupGraphData();
 }
 
-void MIRGraph::CleanupGraphData()
-{
+void MIRGraph::CleanupGraphData() {
 }
 
 /*
@@ -876,7 +875,7 @@ uint64_t MIRGraph::GetDataFlowAttributes(MIR* mir) {
 }
 
 
-const char * MIRGraph::GetExtendedMirOpName(int index){
+const char * MIRGraph::GetExtendedMirOpName(int index) {
     return extended_mir_op_names_[index];
 }
 
