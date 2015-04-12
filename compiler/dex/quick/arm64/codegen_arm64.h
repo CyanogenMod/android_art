@@ -270,7 +270,7 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
   void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
   void Cleanup() QC_WEAK;
 
-private:
+ private:
   /**
    * @brief Given register xNN (dNN), returns register wNN (sNN).
    * @param reg #RegStorage containing a Solo64 input register (e.g. @c x1 or @c d2).
@@ -406,7 +406,7 @@ private:
   InToRegStorageMapping in_to_reg_storage_mapping_;
   static const ArmEncodingMap EncodingMap[kA64Last];
 
-private:
+ private:
   static uint32_t ProcessMoreEncodings(const ArmEncodingMap* encoder, int i, uint32_t operand) QC_WEAK;
   static const ArmEncodingMap* GetEncoder(int opcode) QC_WEAK;
 
