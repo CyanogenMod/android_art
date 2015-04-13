@@ -127,7 +127,7 @@ static void MarkZygoteStart(const InstructionSet isa) {
 
   if (OS::FileExists(boot_marker.c_str())) {
     LOG(WARNING) << "Incomplete boot detected. Pruning dalvik cache";
-    RealPruneDalvikCache(isa_subdir);
+    //RealPruneDalvikCache(isa_subdir);
   }
 
   VLOG(startup) << "Creating boot start marker: " << boot_marker;
