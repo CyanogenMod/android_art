@@ -297,7 +297,7 @@ static jbyte IsDexOptNeededForFile(const std::string& oat_filename, const char* 
     // Note that even though this is kDexoptNeeded, we use
     // kVerboseLogging instead of the usual kReasonLogging since it is
     // the common case on first boot and very spammy.
-    if (kVerboseLogging) {
+    if (kVerboseLogging || true) {
       LOG(INFO) << "DexFile_isDexOptNeeded failed to open oat file '" << oat_filename
           << "' for file location '" << filename << "': " << error_msg;
     }
@@ -317,12 +317,12 @@ static jbyte IsDexOptNeededForFile(const std::string& oat_filename, const char* 
     // If its not possible to read the classes.dex assume up-to-date as we won't be able to
     // compile it anyway.
     if (!DexFile::GetChecksum(filename, &location_checksum, &error_msg)) {
-      if (kVerboseLogging) {
+      if (kVerboseLogging || true) {
         LOG(INFO) << "DexFile_isDexOptNeeded found precompiled stripped file: "
             << filename << " for " << oat_filename << ": " << error_msg;
       }
       if (ClassLinker::VerifyOatChecksums(oat_file.get(), target_instruction_set, &error_msg)) {
-        if (kVerboseLogging) {
+        if (kVerboseLogging || true) {
           LOG(INFO) << "DexFile_isDexOptNeeded file " << oat_filename
                     << " is up-to-date for " << filename;
         }
@@ -330,6 +330,8 @@ static jbyte IsDexOptNeededForFile(const std::string& oat_filename, const char* 
       } else if (should_relocate_if_possible &&
                   ClassLinker::VerifyOatImageChecksum(oat_file.get(), target_instruction_set)) {
         if (kReasonLogging) {
+          LOG(INFO) << "DexFile_isDexOptNeeded VerifyOatAndDexFileChecksum2 failed for " << oat_filename
+                    << " because " << error_msg;
           LOG(INFO) << "DexFile_isDexOptNeeded file " << oat_filename
                     << " needs to be relocated for " << filename;
         }
@@ -345,7 +347,7 @@ static jbyte IsDexOptNeededForFile(const std::string& oat_filename, const char* 
     } else {
       if (ClassLinker::VerifyOatAndDexFileChecksums(oat_file.get(), filename, location_checksum,
                                                     target_instruction_set, &error_msg)) {
-        if (kVerboseLogging) {
+        if (kVerboseLogging || true) {
           LOG(INFO) << "DexFile_isDexOptNeeded file " << oat_filename
                     << " is up-to-date for " << filename;
         }
@@ -354,6 +356,8 @@ static jbyte IsDexOptNeededForFile(const std::string& oat_filename, const char* 
                   && should_relocate_if_possible
                   && ClassLinker::VerifyOatImageChecksum(oat_file.get(), target_instruction_set)) {
         if (kReasonLogging) {
+          LOG(INFO) << "DexFile_isDexOptNeeded VerifyOatAndDexFileChecksum2 failed for " << oat_filename
+                    << " because " << error_msg;
           LOG(INFO) << "DexFile_isDexOptNeeded file " << oat_filename
                     << " needs to be relocated for " << filename;
         }

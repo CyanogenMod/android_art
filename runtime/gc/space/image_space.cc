@@ -142,6 +142,7 @@ static void MarkZygoteStart(const InstructionSet isa) {
 static bool GenerateImage(const std::string& image_filename, InstructionSet image_isa,
                           std::string* error_msg) {
   const std::string boot_class_path_string(Runtime::Current()->GetBootClassPathString());
+  const std::string nextbit_inhibit_marker = "/cache/nextbit/backup/dalvik_zygote_no_pruning";
   std::vector<std::string> boot_class_path;
   Split(boot_class_path_string, ':', boot_class_path);
   if (boot_class_path.empty()) {
@@ -150,8 +151,12 @@ static bool GenerateImage(const std::string& image_filename, InstructionSet imag
   }
   // We should clean up so we are more likely to have room for the image.
   if (Runtime::Current()->IsZygote()) {
-    LOG(INFO) << "Pruning dalvik-cache since we are generating an image and will need to recompile";
-    PruneDalvikCache(image_isa);
+    if (OS::FileExists(nextbit_inhibit_marker.c_str())) {
+      LOG(INFO) << "Not pruning dalvik-cache since the nextbit inhibit marker was found.";
+    } else {
+      LOG(INFO) << "Pruning dalvik-cache since we are generating an image and will need to recompile";
+      PruneDalvikCache(image_isa);
+    }
   }
 
   std::vector<std::string> arg_vector;
@@ -250,10 +255,15 @@ static bool ReadSpecificImageHeader(const char* filename, ImageHeader* image_hea
 // Relocate the image at image_location to dest_filename and relocate it by a random amount.
 static bool RelocateImage(const char* image_location, const char* dest_filename,
                                InstructionSet isa, std::string* error_msg) {
+  const std::string nextbit_inhibit_marker = "/cache/nextbit/backup/dalvik_zygote_no_pruning";
   // We should clean up so we are more likely to have room for the image.
   if (Runtime::Current()->IsZygote()) {
-    LOG(INFO) << "Pruning dalvik-cache since we are relocating an image and will need to recompile";
-    PruneDalvikCache(isa);
+    if (OS::FileExists(nextbit_inhibit_marker.c_str())) {
+      LOG(INFO) << "Not pruning dalvik-cache since the nextbit inhibit marker was found.";
+    } else {
+      LOG(INFO) << "Pruning dalvik-cache since we are relocating an image and will need to recompile";
+      PruneDalvikCache(isa);
+    }
   }
 
   std::string patchoat(Runtime::Current()->GetPatchoatExecutable());
