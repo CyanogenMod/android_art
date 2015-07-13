@@ -180,6 +180,7 @@ size_t GetStackOverflowReservedBytes(InstructionSet isa);
 enum InstructionFeatures {
   kHwDiv  = 0x1,              // Supports hardware divide.
   kHwLpae = 0x2,              // Supports Large Physical Address Extension.
+  kFix835769 = 0x4,           // need fix CortexA53 errata 835769
 };
 
 // This is a bitmask of supported features per architecture.
@@ -204,6 +205,14 @@ class PACKED(4) InstructionSetFeatures {
 
   void SetHasLpae(bool v) {
     mask_ = (mask_ & ~kHwLpae) | (v ? kHwLpae : 0);
+  }
+
+  bool NeedFix835769() const {
+    return (mask_ & kFix835769) != 0;
+  }
+
+  void SetFix835769(bool v) {
+    mask_ = (mask_ & ~kFix835769) | (v ? kFix835769 : 0);
   }
 
   std::string GetFeatureString() const;

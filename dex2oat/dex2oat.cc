@@ -751,6 +751,12 @@ static InstructionSetFeatures ParseFeatureList(std::string str) {
     } else if (feature == "nolpae") {
       // Turn off support for Large Physical Address Extension.
       result.SetHasLpae(false);
+    } else if (feature == "needfix_835769") {
+      // need fix CortexA53 errata 835769
+      result.SetFix835769(true);
+    } else if (feature == "noneedfix_835769") {
+      // no need fix CortexA53 errata 835769
+      result.SetFix835769(false);
     } else {
       Usage("Unknown instruction set feature: '%s'", feature.c_str());
     }
