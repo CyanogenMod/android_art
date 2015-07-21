@@ -282,6 +282,11 @@ LIR* ArmMir2Lir::OpReg(OpKind op, RegStorage r_dest_src) {
   return NewLIR1(opcode, r_dest_src.GetReg());
 }
 
+LIR* ArmMir2Lir::OpBkpt() {
+  LOG(ERROR) << "Inserting breakpoint";
+  return NewLIR0(kThumbBkpt);
+}
+
 LIR* ArmMir2Lir::OpRegRegShift(OpKind op, RegStorage r_dest_src1, RegStorage r_src2,
                                int shift) {
   bool thumb_form =
@@ -399,15 +404,15 @@ LIR* ArmMir2Lir::OpRegRegShift(OpKind op, RegStorage r_dest_src1, RegStorage r_s
       break;
   }
   DCHECK(!IsPseudoLirOp(opcode));
-  if (EncodingMap[opcode].flags & IS_BINARY_OP) {
+  if (GetEncoder(opcode)->flags & IS_BINARY_OP) {
     return NewLIR2(opcode, r_dest_src1.GetReg(), r_src2.GetReg());
-  } else if (EncodingMap[opcode].flags & IS_TERTIARY_OP) {
-    if (EncodingMap[opcode].field_loc[2].kind == kFmtShift) {
+  } else if (GetEncoder(opcode)->flags & IS_TERTIARY_OP) {
+    if (GetEncoder(opcode)->field_loc[2].kind == kFmtShift) {
       return NewLIR3(opcode, r_dest_src1.GetReg(), r_src2.GetReg(), shift);
     } else {
       return NewLIR3(opcode, r_dest_src1.GetReg(), r_dest_src1.GetReg(), r_src2.GetReg());
     }
-  } else if (EncodingMap[opcode].flags & IS_QUAD_OP) {
+  } else if (GetEncoder(opcode)->flags & IS_QUAD_OP) {
     return NewLIR4(opcode, r_dest_src1.GetReg(), r_dest_src1.GetReg(), r_src2.GetReg(), shift);
   } else {
     LOG(FATAL) << "Unexpected encoding operand count";
@@ -498,10 +503,10 @@ LIR* ArmMir2Lir::OpRegRegRegShift(OpKind op, RegStorage r_dest, RegStorage r_src
       break;
   }
   DCHECK(!IsPseudoLirOp(opcode));
-  if (EncodingMap[opcode].flags & IS_QUAD_OP) {
+  if (GetEncoder(opcode)->flags & IS_QUAD_OP) {
     return NewLIR4(opcode, r_dest.GetReg(), r_src1.GetReg(), r_src2.GetReg(), shift);
   } else {
-    DCHECK(EncodingMap[opcode].flags & IS_TERTIARY_OP);
+    DCHECK(GetEncoder(opcode)->flags & IS_TERTIARY_OP);
     return NewLIR3(opcode, r_dest.GetReg(), r_src1.GetReg(), r_src2.GetReg());
   }
 }
@@ -643,7 +648,7 @@ LIR* ArmMir2Lir::OpRegRegImm(OpKind op, RegStorage r_dest, RegStorage r_src1, in
     RegStorage r_scratch = AllocTemp();
     LoadConstant(r_scratch, value);
     LIR* res;
-    if (EncodingMap[alt_opcode].flags & IS_QUAD_OP)
+    if (GetEncoder(alt_opcode)->flags & IS_QUAD_OP)
       res = NewLIR4(alt_opcode, r_dest.GetReg(), r_src1.GetReg(), r_scratch.GetReg(), 0);
     else
       res = NewLIR3(alt_opcode, r_dest.GetReg(), r_src1.GetReg(), r_scratch.GetReg());

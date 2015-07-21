@@ -327,6 +327,8 @@ class Mir2Lir {
       static const uint32_t kLowSingleStorageMask  = 0x00000001;
       static const uint32_t kHighSingleStorageMask = 0x00000002;
       static const uint32_t k64SoloStorageMask     = 0x00000003;
+      static const uint32_t kLowDoubleStorageMask  = 0x00000003;
+      static const uint32_t kHighDoubleStorageMask = 0x0000000c;
       static const uint32_t k128SoloStorageMask    = 0x0000000f;
       static const uint32_t k256SoloStorageMask    = 0x000000ff;
       static const uint32_t k512SoloStorageMask    = 0x0000ffff;
@@ -693,6 +695,7 @@ class Mir2Lir {
     void ApplyLoadStoreElimination(LIR* head_lir, LIR* tail_lir);
     void ApplyLoadHoisting(LIR* head_lir, LIR* tail_lir);
     virtual void ApplyLocalOptimizations(LIR* head_lir, LIR* tail_lir);
+    virtual void ApplyArchOptimizations(LIR*, LIR*, BasicBlock*) { return; };
 
     // Shared by all targets - implemented in ralloc_util.cc
     int GetSRegHi(int lowSreg);
@@ -753,6 +756,8 @@ class Mir2Lir {
     void MarkClean(RegLocation loc);
     void MarkDirty(RegLocation loc);
     void MarkInUse(RegStorage reg);
+    void MarkFree(RegStorage reg);
+    void MarkDead(RegStorage reg);
     bool CheckCorePoolSanity();
     virtual RegLocation UpdateLoc(RegLocation loc);
     virtual RegLocation UpdateLocWide(RegLocation loc);
@@ -1350,6 +1355,9 @@ class Mir2Lir {
      */
     virtual void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir);
 
+    /* non virtual so it doesn't have to be implemented */
+    virtual void MachineSpecificPreprocessMIR(BasicBlock*, MIR*) { };
+
     /**
      * @brief Lowers the kMirOpSelect MIR into LIR.
      * @param bb The basic block in which the MIR is from.
@@ -1414,6 +1422,9 @@ class Mir2Lir {
     virtual LIR* OpMem(OpKind op, RegStorage r_base, int disp) = 0;
     virtual void OpPcRelLoad(RegStorage reg, LIR* target) = 0;
     virtual LIR* OpReg(OpKind op, RegStorage r_dest_src) = 0;
+    virtual LIR* OpBkpt() { // not abstract so it doesn't have to be implemeted for other platforms
+                            return NULL;
+                          };
     virtual void OpRegCopy(RegStorage r_dest, RegStorage r_src) = 0;
     virtual LIR* OpRegCopyNoInsert(RegStorage r_dest, RegStorage r_src) = 0;
     virtual LIR* OpRegImm(OpKind op, RegStorage r_dest_src1, int value) = 0;

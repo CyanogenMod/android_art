@@ -471,10 +471,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C,
 
   // 93 DIV_INT vAA, vBB, vCC
-  DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C,
+  DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C | DF_ZERO_DIV_CHECK,
 
   // 94 REM_INT vAA, vBB, vCC
-  DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C,
+  DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C | DF_ZERO_DIV_CHECK,
 
   // 95 AND_INT vAA, vBB, vCC
   DF_DA | DF_UB | DF_UC | DF_CORE_A | DF_CORE_B | DF_CORE_C,
@@ -504,10 +504,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C,
 
   // 9E DIV_LONG vAA, vBB, vCC
-  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C,
+  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C | DF_ZERO_DIV_CHECK,
 
   // 9F REM_LONG vAA, vBB, vCC
-  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C,
+  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C | DF_ZERO_DIV_CHECK,
 
   // A0 AND_LONG vAA, vBB, vCC
   DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_CORE_A | DF_CORE_B | DF_CORE_C,
@@ -537,10 +537,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_UB | DF_UC | DF_FP_A | DF_FP_B | DF_FP_C,
 
   // A9 DIV_FLOAT vAA, vBB, vCC
-  DF_DA | DF_UB | DF_UC | DF_FP_A | DF_FP_B | DF_FP_C,
+  DF_DA | DF_UB | DF_UC | DF_FP_A | DF_FP_B | DF_FP_C | DF_ZERO_DIV_CHECK,
 
   // AA REM_FLOAT vAA, vBB, vCC
-  DF_DA | DF_UB | DF_UC | DF_FP_A | DF_FP_B | DF_FP_C,
+  DF_DA | DF_UB | DF_UC | DF_FP_A | DF_FP_B | DF_FP_C | DF_ZERO_DIV_CHECK,
 
   // AB ADD_DOUBLE vAA, vBB, vCC
   DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C,
@@ -552,10 +552,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C,
 
   // AE DIV_DOUBLE vAA, vBB, vCC
-  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C,
+  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C | DF_ZERO_DIV_CHECK,
 
   // AF REM_DOUBLE vAA, vBB, vCC
-  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C,
+  DF_DA | DF_A_WIDE | DF_UB | DF_B_WIDE | DF_UC | DF_C_WIDE | DF_FP_A | DF_FP_B | DF_FP_C | DF_ZERO_DIV_CHECK,
 
   // B0 ADD_INT_2ADDR vA, vB
   DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B,
@@ -567,10 +567,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B,
 
   // B3 DIV_INT_2ADDR vA, vB
-  DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B,
+  DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B | DF_ZERO_DIV_CHECK,
 
   // B4 REM_INT_2ADDR vA, vB
-  DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B,
+  DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B | DF_ZERO_DIV_CHECK,
 
   // B5 AND_INT_2ADDR vA, vB
   DF_DA | DF_UA | DF_UB | DF_CORE_A | DF_CORE_B,
@@ -600,10 +600,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B,
 
   // BE DIV_LONG_2ADDR vA, vB
-  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B,
+  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B | DF_ZERO_DIV_CHECK,
 
   // BF REM_LONG_2ADDR vA, vB
-  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B,
+  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B | DF_ZERO_DIV_CHECK,
 
   // C0 AND_LONG_2ADDR vA, vB
   DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_CORE_A | DF_CORE_B,
@@ -633,10 +633,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_UA | DF_UB | DF_FP_A | DF_FP_B,
 
   // C9 DIV_FLOAT_2ADDR vA, vB
-  DF_DA | DF_UA | DF_UB | DF_FP_A | DF_FP_B,
+  DF_DA | DF_UA | DF_UB | DF_FP_A | DF_FP_B | DF_ZERO_DIV_CHECK,
 
   // CA REM_FLOAT_2ADDR vA, vB
-  DF_DA | DF_UA | DF_UB | DF_FP_A | DF_FP_B,
+  DF_DA | DF_UA | DF_UB | DF_FP_A | DF_FP_B | DF_ZERO_DIV_CHECK,
 
   // CB ADD_DOUBLE_2ADDR vA, vB
   DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B,
@@ -648,10 +648,10 @@ const uint64_t MIRGraph::oat_data_flow_attributes_[kMirOpLast] = {
   DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B,
 
   // CE DIV_DOUBLE_2ADDR vA, vB
-  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B,
+  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B | DF_ZERO_DIV_CHECK,
 
   // CF REM_DOUBLE_2ADDR vA, vB
-  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B,
+  DF_DA | DF_A_WIDE | DF_UA | DF_UB | DF_B_WIDE | DF_FP_A | DF_FP_B | DF_ZERO_DIV_CHECK,
 
   // D0 ADD_INT_LIT16 vA, vB, #+CCCC
   DF_DA | DF_UB | DF_CORE_A | DF_CORE_B,
@@ -1373,7 +1373,7 @@ void MIRGraph::CompilerInitializeSSAConversion() {
     vreg_to_ssa_map_[i] = i;
     ssa_last_defs_[i] = 0;
   }
-
+  reg_location_ = nullptr;
   // Create a compiler temporary for Method*. This is done after SSA initialization.
   CompilerTemp* method_temp = GetNewCompilerTemp(kCompilerTempSpecialMethodPtr, false);
   // The MIR graph keeps track of the sreg for method pointer specially, so record that now.
@@ -1434,7 +1434,7 @@ bool MIRGraph::VerifyPredInfo(BasicBlock* bb) {
       char block_name1[BLOCK_NAME_LEN], block_name2[BLOCK_NAME_LEN];
       GetBlockName(bb, block_name1);
       GetBlockName(pred_bb, block_name2);
-      DumpCFG("/sdcard/cfg/", false);
+      DumpCFG("/data/quick/", false);
       LOG(FATAL) << "Successor " << block_name1 << " not found from "
                  << block_name2;
     }

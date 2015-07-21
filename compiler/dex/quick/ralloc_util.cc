@@ -928,6 +928,24 @@ void Mir2Lir::MarkInUse(RegStorage reg) {
   }
 }
 
+void Mir2Lir::MarkFree(RegStorage reg) {
+  if (reg.IsPair()) {
+    GetRegInfo(reg.GetLow())->MarkFree();
+    GetRegInfo(reg.GetHigh())->MarkFree();
+  } else {
+    GetRegInfo(reg)->MarkFree();
+  }
+}
+
+void Mir2Lir::MarkDead(RegStorage reg) {
+  if (reg.IsPair()) {
+    GetRegInfo(reg.GetLow())->MarkDead();
+    GetRegInfo(reg.GetHigh())->MarkDead();
+  } else {
+    GetRegInfo(reg)->MarkDead();
+  }
+}
+
 bool Mir2Lir::CheckCorePoolSanity() {
   for (RegisterInfo* info : tempreg_info_) {
     int my_sreg = info->SReg();

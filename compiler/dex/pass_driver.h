@@ -25,10 +25,18 @@
 
 namespace art {
 
+#ifdef QC_STRONG
+#define QC_WEAK
+#else
+#define QC_WEAK __attribute__((weak))
+#endif
+
 class Pass;
 class PassDataHolder;
 class PassDriver;
 class PassManager;
+
+const Pass* GetMorePassInstance() QC_WEAK;
 
 // Empty holder for the constructor.
 class PassDriverDataHolder {

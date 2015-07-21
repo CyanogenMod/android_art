@@ -1545,14 +1545,14 @@ void Mir2Lir::GenArithOpInt(Instruction::Code opcode, RegLocation rl_dest,
       break;
     case Instruction::DIV_INT:
     case Instruction::DIV_INT_2ADDR:
-      check_zero = true;
+      check_zero = (flags & MIR_IGNORE_ZERO_DIV_CHECK) ? false : true;
       op = kOpDiv;
       is_div_rem = true;
       break;
     /* NOTE: returns in kArg1 */
     case Instruction::REM_INT:
     case Instruction::REM_INT_2ADDR:
-      check_zero = true;
+      check_zero = (flags & MIR_IGNORE_ZERO_DIV_CHECK) ? false : true;
       op = kOpRem;
       is_div_rem = true;
       break;

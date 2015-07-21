@@ -384,6 +384,7 @@ CompilerDriver::CompilerDriver(const CompilerOptions* compiler_options,
       timings_logger_(timer),
       compiler_context_(nullptr),
       support_boot_image_fixup_(instruction_set != kMips && instruction_set != kMips64),
+      status_map_(new std::vector<SafeMap<int32_t, int32_t>>(thread_count)),
       dedupe_code_("dedupe code", *swap_space_allocator_),
       dedupe_src_mapping_table_("dedupe source mapping table", *swap_space_allocator_),
       dedupe_mapping_table_("dedupe mapping table", *swap_space_allocator_),
@@ -2169,6 +2170,13 @@ void CompilerDriver::CompileClass(const ParallelCompilationManager* manager,
 
   CompilerDriver* const driver = manager->GetCompiler();
 
+  // reset the status map properly
+  SafeMap<int32_t, int32_t> *status_map = driver->GetStatusMap(self);
+
+  if (status_map != nullptr) {
+    status_map->clear();
+  }
+
   // Can we run DEX-to-DEX compiler on this class ?
   DexToDexCompilationLevel dex_to_dex_compilation_level = kDontDexToDexCompile;
   {
@@ -2525,6 +2533,11 @@ bool CompilerDriver::IsStringInit(uint32_t method_index, const DexFile* dex_file
   size_t pointer_size = InstructionSetPointerSize(GetInstructionSet());
   *offset = inliner->GetOffsetForStringInit(method_index, pointer_size);
   return inliner->IsStringInitMethodIndex(method_index);
+}
+
+SafeMap<int32_t, int32_t> *CompilerDriver::GetStatusMap(Thread *)
+{
+  return nullptr;
 }
 
 }  // namespace art

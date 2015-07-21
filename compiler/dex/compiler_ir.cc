@@ -27,7 +27,7 @@
 namespace art {
 
 CompilationUnit::CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver,
-                                 ClassLinker* linker)
+                                 ClassLinker* linker, const QuickCompiler* compiler)
   : compiler_driver(driver),
     class_linker(linker),
     dex_file(nullptr),
@@ -47,7 +47,8 @@ CompilationUnit::CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDr
     mir_graph(nullptr),
     cg(nullptr),
     timings("QuickCompiler", true, false),
-    print_pass(false) {
+    print_pass(false),
+    compiler_(compiler) {
 }
 
 CompilationUnit::~CompilationUnit() {

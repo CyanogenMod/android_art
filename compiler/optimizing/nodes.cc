@@ -1315,6 +1315,7 @@ void HGraph::InlineInto(HGraph* outer_graph, HInvoke* invoke) {
     // Do a reverse post order of the blocks in the callee and do (1), (2),
     // and (3) to the blocks that apply.
     HLoopInformation* info = at->GetLoopInformation();
+    HLoopInformation* info_callee = nullptr;
     for (HReversePostOrderIterator it(*this); !it.Done(); it.Advance()) {
       HBasicBlock* current = it.Current();
       if (current != exit_block_ && current != entry_block_ && current != first) {
@@ -1324,12 +1325,20 @@ void HGraph::InlineInto(HGraph* outer_graph, HInvoke* invoke) {
         outer_graph->AddBlock(current);
         outer_graph->reverse_post_order_.Put(++index_of_at, current);
         if (info != nullptr) {
-          current->SetLoopInformation(info);
+          if (current->GetLoopInformation() == nullptr)
+            current->SetLoopInformation(info);
+          else
+            info_callee = current->GetLoopInformation();
           for (HLoopInformationOutwardIterator loop_it(*at); !loop_it.Done(); loop_it.Advance()) {
             loop_it.Current()->Add(current);
           }
         }
       }
+    }
+    //inlining loop
+    if (info_callee != nullptr) {
+      ((ArenaBitVector &)(info_callee->GetBlocks())).ClearAllBits();
+      info_callee->Populate();
     }
 
     // Do (1), (2), and (3) to `to`.

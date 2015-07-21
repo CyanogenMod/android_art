@@ -128,7 +128,9 @@ class GrowableArray : public ArenaObject<kArenaAllocGrowableArray> {
         }
       }
       // We should either have found the element, or it was the last (unscanned) element.
-      DCHECK(found || (element == elem_list_[num_used_ - 1]));
+      // if element is not in array, don't touch anything
+      if(!found && (element != elem_list_[num_used_ - 1]))
+        return;
       num_used_--;
     }
 

@@ -682,8 +682,22 @@ void Arm64Mir2Lir::InsertFixupBefore(LIR* prev_lir, LIR* orig_lir, LIR* new_lir)
   }
 }
 
+const A64EncodingMap* Arm64Mir2Lir::GetEncoder(int opcode) {
+  if (opcode < 0 || opcode >= kA64Last)
+    LOG(FATAL) << "invalid opcode " << opcode;
+  const A64EncodingMap* encoder = &EncodingMap[opcode];
+  return encoder;
+}
+
 /* Nop, used for aligning code. Nop is an alias for hint #0. */
 #define PADDING_NOP (UINT32_C(0xd503201f))
+
+uint32_t Arm64Mir2Lir::ProcessMoreEncodings(const A64EncodingMap *encoder,
+                                            int i, uint32_t operand) {
+  LOG(FATAL) << "Bad fmt:" << encoder->field_loc[i].kind << " " << operand;
+  uint32_t value = 0;
+  return value;
+}
 
 uint8_t* Arm64Mir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
   uint8_t* const write_buffer = write_pos;
@@ -697,7 +711,7 @@ uint8_t* Arm64Mir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
     }
 
     if (LIKELY(!lir->flags.is_nop)) {
-      const A64EncodingMap *encoder = &EncodingMap[opcode];
+      const A64EncodingMap *encoder = GetEncoder(opcode);
 
       // Select the right variant of the skeleton.
       uint32_t bits = opcode_is_wide ? encoder->xskeleton : encoder->wskeleton;
@@ -831,8 +845,8 @@ uint8_t* Arm64Mir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
               bits |= value;
               break;
             default:
-              LOG(FATAL) << "Bad fmt for arg. " << i << " in " << encoder->name
-                         << " (" << kind << ")";
+              bits |= ProcessMoreEncodings(encoder, i, operand);
+              break;
           }
         }
       }
@@ -1050,7 +1064,7 @@ void Arm64Mir2Lir::AssembleLIR() {
           }
           break;
         default:
-          LOG(FATAL) << "Unexpected case " << lir->flags.fixup;
+          LOG(FATAL) << "Unexpected case: opcode: " << lir->opcode << ", fixup: " << lir->flags.fixup;
       }
       prev_lir = lir;
       lir = lir->u.a.pcrel_next;
@@ -1101,7 +1115,7 @@ void Arm64Mir2Lir::AssembleLIR() {
 size_t Arm64Mir2Lir::GetInsnSize(LIR* lir) {
   A64Opcode opcode = UNWIDE(lir->opcode);
   DCHECK(!IsPseudoLirOp(opcode));
-  return EncodingMap[opcode].size;
+  return GetEncoder(opcode)->size;
 }
 
 // Encode instruction bit pattern and assign offsets.
@@ -1114,8 +1128,8 @@ uint32_t Arm64Mir2Lir::LinkFixupInsns(LIR* head_lir, LIR* tail_lir, uint32_t off
     if (!lir->flags.is_nop) {
       if (lir->flags.fixup != kFixupNone) {
         if (!IsPseudoLirOp(opcode)) {
-          lir->flags.size = EncodingMap[opcode].size;
-          lir->flags.fixup = EncodingMap[opcode].fixup;
+          lir->flags.size = GetEncoder(opcode)->size;
+          lir->flags.fixup = GetEncoder(opcode)->fixup;
         } else {
           DCHECK_NE(static_cast<int>(opcode), kPseudoPseudoAlign4);
           lir->flags.size = 0;

@@ -22,9 +22,17 @@
 #include "base/logging.h"
 #include "dex/quick/mir_to_lir.h"
 
+#ifdef QC_STRONG
+#define QC_WEAK
+#else
+#define QC_WEAK __attribute__((weak))
+#endif
+
 namespace art {
 
 struct CompilationUnit;
+
+class QCArmMir2Lir;
 
 class ArmMir2Lir FINAL : public Mir2Lir {
  protected:
@@ -57,6 +65,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
 
   public:
     ArmMir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena);
+    ~ArmMir2Lir();
 
     // Required for target - codegen helpers.
     bool SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div, RegLocation rl_src,
@@ -206,6 +215,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     LIR* OpMem(OpKind op, RegStorage r_base, int disp);
     void OpPcRelLoad(RegStorage reg, LIR* target);
     LIR* OpReg(OpKind op, RegStorage r_dest_src);
+    LIR* OpBkpt();
     void OpRegCopy(RegStorage r_dest, RegStorage r_src);
     LIR* OpRegCopyNoInsert(RegStorage r_dest, RegStorage r_src);
     LIR* OpRegImm(OpKind op, RegStorage r_dest_src1, int value);
@@ -271,12 +281,15 @@ class ArmMir2Lir FINAL : public Mir2Lir {
 
     LIR* InvokeTrampoline(OpKind op, RegStorage r_tgt, QuickEntrypointEnum trampoline) OVERRIDE;
     size_t GetInstructionOffset(LIR* lir);
+    void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
+    //void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir);
 
     void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) OVERRIDE;
 
     bool HandleEasyDivRem(Instruction::Code dalvik_opcode, bool is_div,
                           RegLocation rl_src, RegLocation rl_dest, int lit) OVERRIDE;
 
+    void CleanupCodeGenData() QC_WEAK;
   private:
     void GenNegLong(RegLocation rl_dest, RegLocation rl_src);
     void GenMulLong(Instruction::Code opcode, RegLocation rl_dest, RegLocation rl_src1,
@@ -300,6 +313,12 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     bool GetEasyMultiplyOp(int lit, EasyMultiplyOp* op);
     bool GetEasyMultiplyTwoOps(int lit, EasyMultiplyOp* ops);
     void GenEasyMultiplyTwoOps(RegStorage r_dest, RegStorage r_src, EasyMultiplyOp* ops);
+
+
+
+    static uint32_t ProcessMoreEncodings(const ArmEncodingMap* encoder, int i, uint32_t operand) QC_WEAK;
+
+    static const ArmEncodingMap * GetEncoder(int opcode) QC_WEAK;
 
     static constexpr ResourceMask GetRegMaskArm(RegStorage reg);
     static constexpr ResourceMask EncodeArmRegList(int reg_list);
@@ -351,6 +370,17 @@ class ArmMir2Lir FINAL : public Mir2Lir {
                                  InvokeType type);
 
     void OpPcRelDexCacheArrayAddr(const DexFile* dex_file, int offset, RegStorage r_dest);
+
+    virtual void ApplyArchOptimizations(LIR* head_lir, LIR* tail_lir, BasicBlock* bb) QC_WEAK;
+
+    void CompilerPostInitializeRegAlloc() QC_WEAK;
+    void ArmMir2LirPostInit(ArmMir2Lir* mir_to_lir) QC_WEAK;
+
+    friend class QCArmMir2Lir;
+
+    public:
+    QCArmMir2Lir * qcm2l ;
+
 };
 
 }  // namespace art

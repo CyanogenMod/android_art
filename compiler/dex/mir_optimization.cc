@@ -464,6 +464,11 @@ static bool EvaluateBranch(Instruction::Code opcode, int32_t src1, int32_t src2)
   return is_taken;
 }
 
+bool MIRGraph::SupportMLA()
+{
+  return true;
+}
+
 /* Do some MIR-level extended basic block optimizations */
 bool MIRGraph::BasicBlockOpt(BasicBlock* bb) {
   if (bb->block_type == kDead) {
@@ -471,7 +476,8 @@ bool MIRGraph::BasicBlockOpt(BasicBlock* bb) {
   }
   // Currently multiply-accumulate backend supports are only available on arm32 and arm64.
   if (cu_->instruction_set == kArm64 || cu_->instruction_set == kThumb2) {
-    MultiplyAddOpt(bb);
+    if (SupportMLA())
+      MultiplyAddOpt(bb);
   }
   bool use_lvn = bb->use_lvn && (cu_->disable_opt & (1u << kLocalValueNumbering)) == 0u;
   std::unique_ptr<ScopedArenaAllocator> allocator;

@@ -1280,6 +1280,7 @@ bool Mir2Lir::MethodBlockCodeGen(BasicBlock* bb) {
       head_lir->u.m.def_mask = &kEncodeAll;
     }
 
+    MachineSpecificPreprocessMIR(bb, mir);
     if (MIR::DecodedInstruction::IsPseudoMirOp(opcode)) {
       HandleExtendedMethodMIR(bb, mir);
       continue;
@@ -1291,6 +1292,8 @@ bool Mir2Lir::MethodBlockCodeGen(BasicBlock* bb) {
   if (head_lir) {
     // Eliminate redundant loads/stores and delay stores into later slots.
     ApplyLocalOptimizations(head_lir, last_lir_insn_);
+    // Apply architecture-specific optimizations
+    ApplyArchOptimizations(head_lir, last_lir_insn_, bb);
   }
   return false;
 }

@@ -43,6 +43,12 @@
 #include "utils/dex_cache_arrays_layout.h"
 #include "utils/swap_space.h"
 
+#ifdef QC_STRONG
+#define QC_WEAK
+#else
+#define QC_WEAK __attribute__((weak))
+#endif
+
 namespace art {
 
 namespace mirror {
@@ -473,6 +479,9 @@ class CompilerDriver {
     had_hard_verifier_failure_ = true;
   }
 
+  // get the status map associated with a thread
+  SafeMap<int32_t, int32_t> *GetStatusMap(Thread *self) QC_WEAK;
+
  private:
   // Return whether the declaring class of `resolved_member` is
   // available to `referrer_class` for read or write access using two
@@ -687,6 +696,7 @@ class CompilerDriver {
 
   bool support_boot_image_fixup_;
 
+  std::unique_ptr<std::vector<SafeMap<int32_t, int32_t>>> status_map_;
   // DeDuplication data structures, these own the corresponding byte arrays.
   template <typename ContentType>
   class DedupeHashFunc {

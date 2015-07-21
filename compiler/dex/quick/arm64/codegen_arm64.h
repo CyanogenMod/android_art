@@ -23,8 +23,14 @@
 
 #include <map>
 
-namespace art {
+#ifdef QC_STRONG
+#define QC_WEAK
+#else
+#define QC_WEAK __attribute__((weak))
+#endif
 
+namespace art {
+class QCArm64Mir2Lir;
 class Arm64Mir2Lir FINAL : public Mir2Lir {
  protected:
   class InToRegStorageArm64Mapper : public InToRegStorageMapper {
@@ -49,6 +55,7 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
 
  public:
   Arm64Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena);
+  ~Arm64Mir2Lir();
 
   // Required for target - codegen helpers.
   bool SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div, RegLocation rl_src,
@@ -264,7 +271,11 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
 
   LIR* InvokeTrampoline(OpKind op, RegStorage r_tgt, QuickEntrypointEnum trampoline) OVERRIDE;
 
- private:
+  void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
+
+  void CleanupCodeGenData() QC_WEAK;
+
+private:
   /**
    * @brief Given register xNN (dNN), returns register wNN (sNN).
    * @param reg #RegStorage containing a Solo64 input register (e.g. @c x1 or @c d2).
@@ -409,6 +420,20 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
   ArenaVector<LIR*> dex_cache_access_insns_;
 
   int GenDalvikArgsBulkCopy(CallInfo* info, int first, int count) OVERRIDE;
+
+  void Cleanup() QC_WEAK;
+
+private:
+  static uint32_t ProcessMoreEncodings(const A64EncodingMap* encoder, int i, uint32_t operand) QC_WEAK;
+  static const A64EncodingMap* GetEncoder(int opcode) QC_WEAK;
+
+  virtual void ApplyArchOptimizations(LIR* head_lir, LIR* tail_lir, BasicBlock* bb) QC_WEAK;
+
+  void CompilerPostInitializeRegAlloc() QC_WEAK;
+  void Arm64Mir2LirPostInit(Arm64Mir2Lir* mir_to_lir) QC_WEAK;
+
+  friend class QCArm64Mir2Lir;
+  QCArm64Mir2Lir* qcm2l;
 };
 
 }  // namespace art

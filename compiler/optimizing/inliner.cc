@@ -73,6 +73,22 @@ void HInliner::Run() {
   }
 }
 
+// additional check for an inlinable method
+bool HInliner::CanInlineMethod(const DexCompilationUnit& ,
+                                HGraph&,
+                                HInvoke*) const
+{
+  return false;
+}
+
+// try if we can remove exception checks
+void HInliner::TryRemoveExceptionChecks(const DexCompilationUnit&,
+                                        HGraph&,
+                                        HInvoke*) const
+{
+    return;
+}
+
 bool HInliner::TryInline(HInvoke* invoke_instruction, uint32_t method_index) const {
   ScopedObjectAccess soa(Thread::Current());
   const DexFile& caller_dex_file = *caller_compilation_unit_.GetDexFile();
@@ -234,11 +250,15 @@ bool HInliner::TryBuildAndInline(ArtMethod* resolved_method,
     inliner.Run();
   }
 
+  TryRemoveExceptionChecks(dex_compilation_unit, *callee_graph, invoke_instruction);
+
   HReversePostOrderIterator it(*callee_graph);
   it.Advance();  // Past the entry block, it does not contain instructions that prevent inlining.
   for (; !it.Done(); it.Advance()) {
     HBasicBlock* block = it.Current();
-    if (block->IsLoopHeader()) {
+    if (block->IsLoopHeader() && !CanInlineMethod(dex_compilation_unit,
+                                                  *callee_graph,
+                                                  invoke_instruction)) {
       VLOG(compiler) << "Method " << PrettyMethod(method_index, caller_dex_file)
                      << " could not be inlined because it contains a loop";
       resolved_method->SetShouldNotInline();

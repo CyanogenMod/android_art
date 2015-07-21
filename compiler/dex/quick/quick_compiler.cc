@@ -488,12 +488,22 @@ static bool CanCompileShorty(const char* shorty, InstructionSet instruction_set)
   return true;
 }
 
+// check certain conditions that we don't want Quick compiler to handle
+bool QuickCompiler::CheckMoreConditions(CompilationUnit*) const
+{
+  return true;
+}
+
 // Skip the method that we do not support currently.
 bool QuickCompiler::CanCompileMethod(uint32_t method_idx, const DexFile& dex_file,
                                      CompilationUnit* cu) const {
   // This is a limitation in mir_graph. See MirGraph::SetNumSSARegs.
   if (cu->mir_graph->GetNumOfCodeAndTempVRs() > kMaxAllowedDalvikRegisters) {
     VLOG(compiler) << "Too many dalvik registers : " << cu->mir_graph->GetNumOfCodeAndTempVRs();
+    return false;
+  }
+
+  if (!CheckMoreConditions(cu)) {
     return false;
   }
 
@@ -637,7 +647,7 @@ CompiledMethod* QuickCompiler::Compile(const DexFile::CodeItem* code_item,
   if (instruction_set == kArm) {
     instruction_set = kThumb2;
   }
-  CompilationUnit cu(runtime->GetArenaPool(), instruction_set, driver, class_linker);
+  CompilationUnit cu(runtime->GetArenaPool(), instruction_set, driver, class_linker, this);
   cu.dex_file = &dex_file;
   cu.class_def_idx = class_def_idx;
   cu.method_idx = method_idx;
@@ -719,6 +729,14 @@ CompiledMethod* QuickCompiler::Compile(const DexFile::CodeItem* code_item,
   /* Create the pass driver and launch it */
   PassDriverMEOpts pass_driver(GetPreOptPassManager(), GetPostOptPassManager(), &cu);
   pass_driver.Launch();
+
+  if (GetCheckBailOutFlag() && cu.mir_graph->PassFailed()) {
+    return nullptr;
+  }
+
+  if (GetCheckBailOutFlag()) {
+    VLOG(compiler) << "fast compile applied to " << PrettyMethod(method_idx, dex_file);
+  }
 
   /* For non-leaf methods check if we should skip compilation when the profiler is enabled. */
   if (cu.compiler_driver->ProfilePresent()
@@ -848,6 +866,7 @@ QuickCompiler::QuickCompiler(CompilerDriver* driver) : Compiler(driver, 100) {
   if (pass_manager_options->GetPrintPassOptions()) {
     PassDriverMEPostOpt::PrintPassOptions(post_opt_pass_manager_.get());
   }
+  check_bail_out_ = false;
 }
 
 QuickCompiler::~QuickCompiler() {

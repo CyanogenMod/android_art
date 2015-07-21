@@ -20,6 +20,12 @@
 #include "invoke_type.h"
 #include "optimization.h"
 
+#ifdef QC_STRONG
+#define QC_WEAK
+#else
+#define QC_WEAK __attribute__((weak))
+#endif
+
 namespace art {
 
 class CompilerDriver;
@@ -47,6 +53,12 @@ class HInliner : public HOptimization {
   static constexpr const char* kInlinerPassName = "inliner";
 
  private:
+  bool CanInlineMethod(const DexCompilationUnit& dex_compilation_unit,
+                        HGraph& graph,
+                        HInvoke* invoke_instruction) const QC_WEAK;
+  void TryRemoveExceptionChecks(const DexCompilationUnit& dex_compilation_unit,
+                                HGraph& graph,
+                                HInvoke* invoke_instruction) const QC_WEAK;
   bool TryInline(HInvoke* invoke_instruction, uint32_t method_index) const;
   bool TryBuildAndInline(ArtMethod* resolved_method,
                          HInvoke* invoke_instruction,

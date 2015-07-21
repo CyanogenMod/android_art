@@ -447,6 +447,17 @@ class SuspendCheckElimination : public PassME {
   }
 };
 
+// dummy pass, for placeholder only
+class DummyPass : public PassME {
+    public:
+     DummyPass() : PassME("DummyPass", kNoNodes, "") {
+     }
+
+     bool Gate(const PassDataHolder*) const {
+        return false;
+     }
+};
+
 }  // namespace art
 
 #endif  // ART_COMPILER_DEX_BB_OPTIMIZATIONS_H_
