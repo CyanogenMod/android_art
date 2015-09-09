@@ -161,6 +161,7 @@ struct OptionContent {
 };
 
 struct CompilationUnit {
+  CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver, ClassLinker* linker);
   CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver, ClassLinker* linker,
                   const QuickCompiler* compiler);
   ~CompilationUnit();
