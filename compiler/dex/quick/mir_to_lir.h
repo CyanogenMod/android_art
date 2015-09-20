@@ -726,7 +726,7 @@ class Mir2Lir : public Backend {
     void ApplyLoadStoreElimination(LIR* head_lir, LIR* tail_lir);
     void ApplyLoadHoisting(LIR* head_lir, LIR* tail_lir);
     virtual void ApplyLocalOptimizations(LIR* head_lir, LIR* tail_lir);
-    virtual void ApplyArchOptimizations(LIR* head_lir, LIR* tail_lir, BasicBlock* bb) { return; };
+    virtual void ApplyArchOptimizations(LIR* head_lir, LIR* tail_lir, BasicBlock* bb) { return; }
 
     // Shared by all targets - implemented in ralloc_util.cc
     int GetSRegHi(int lowSreg);
@@ -1340,7 +1340,7 @@ class Mir2Lir : public Backend {
     virtual void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir);
 
     /* non virtual so it doesn't have to be implemented */
-    virtual void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir) { };
+    virtual void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir) { }
 
     /**
      * @brief Lowers the kMirOpSelect MIR into LIR.
@@ -1406,7 +1406,7 @@ class Mir2Lir : public Backend {
     virtual LIR* OpMem(OpKind op, RegStorage r_base, int disp) = 0;
     virtual LIR* OpPcRelLoad(RegStorage reg, LIR* target) = 0;
     virtual LIR* OpReg(OpKind op, RegStorage r_dest_src) = 0;
-    virtual LIR* OpBkpt() { // not abstract so it doesn't have to be implemeted for other platforms
+    virtual LIR* OpBkpt() {  // not abstract so it doesn't have to be implemeted for other platforms
                             return NULL;
                           };
     virtual void OpRegCopy(RegStorage r_dest, RegStorage r_src) = 0;
