@@ -2538,8 +2538,7 @@ bool CompilerDriver::IsStringInit(uint32_t method_index, const DexFile* dex_file
   return inliner->IsStringInitMethodIndex(method_index);
 }
 
-SafeMap<int32_t, int32_t> *CompilerDriver::GetStatusMap(Thread *)
-{
+SafeMap<int32_t, int32_t> *CompilerDriver::GetStatusMap(Thread *) {
   return nullptr;
 }
 

@@ -275,7 +275,7 @@ class Arm64Mir2Lir FINAL : public Mir2Lir {
 
   void CleanupCodeGenData() QC_WEAK;
 
-private:
+ private:
   /**
    * @brief Given register xNN (dNN), returns register wNN (sNN).
    * @param reg #RegStorage containing a Solo64 input register (e.g. @c x1 or @c d2).
@@ -423,7 +423,7 @@ private:
 
   void Cleanup() QC_WEAK;
 
-private:
+ private:
   static uint32_t ProcessMoreEncodings(const A64EncodingMap* encoder, int i, uint32_t operand) QC_WEAK;
   static const A64EncodingMap* GetEncoder(int opcode) QC_WEAK;
 

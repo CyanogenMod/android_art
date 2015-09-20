@@ -140,9 +140,8 @@ ResourceMask ArmMir2Lir::GetRegMaskCommon(const RegStorage& reg) const {
   return GetRegMaskArm(reg);
 }
 
-void ArmMir2Lir::CompilerPostInitializeRegAlloc()
-{
-    //nothing here
+void ArmMir2Lir::CompilerPostInitializeRegAlloc() {
+    // nothing here
 }
 
 constexpr ResourceMask ArmMir2Lir::GetRegMaskArm(RegStorage reg) {
@@ -597,13 +596,11 @@ ArmMir2Lir::ArmMir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator*
   ArmMir2LirPostInit(this);
 }
 
-ArmMir2Lir::~ArmMir2Lir()
-{
+ArmMir2Lir::~ArmMir2Lir() {
   CleanupCodeGenData();
 }
 
-void ArmMir2Lir::CleanupCodeGenData()
-{
+void ArmMir2Lir::CleanupCodeGenData() {
 }
 
 void ArmMir2Lir::ArmMir2LirPostInit(ArmMir2Lir*) {
@@ -1036,7 +1033,7 @@ void ArmMir2Lir::GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) {
       // LOG(FATAL) << "Unexpected opcode: " << mir->dalvikInsn.opcode;
   }
 }
-void ArmMir2Lir::GenMoreMachineSpecificExtendedMethodMIR(BasicBlock*, MIR*){
+void ArmMir2Lir::GenMoreMachineSpecificExtendedMethodMIR(BasicBlock*, MIR*) {
     // nothing here
 }
 

@@ -282,7 +282,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     LIR* InvokeTrampoline(OpKind op, RegStorage r_tgt, QuickEntrypointEnum trampoline) OVERRIDE;
     size_t GetInstructionOffset(LIR* lir);
     void GenMoreMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) QC_WEAK;
-    //void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir);
+    // void MachineSpecificPreprocessMIR(BasicBlock* bb, MIR* mir);
 
     void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) OVERRIDE;
 
@@ -290,6 +290,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
                           RegLocation rl_src, RegLocation rl_dest, int lit) OVERRIDE;
 
     void CleanupCodeGenData() QC_WEAK;
+
   private:
     void GenNegLong(RegLocation rl_dest, RegLocation rl_src);
     void GenMulLong(Instruction::Code opcode, RegLocation rl_dest, RegLocation rl_src1,
@@ -379,8 +380,7 @@ class ArmMir2Lir FINAL : public Mir2Lir {
     friend class QCArmMir2Lir;
 
     public:
-    QCArmMir2Lir * qcm2l ;
-
+    QCArmMir2Lir * qcm2l;
 };
 
 }  // namespace art

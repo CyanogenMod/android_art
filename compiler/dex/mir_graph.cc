@@ -166,8 +166,7 @@ MIRGraph::~MIRGraph() {
   CleanupGraphData();
 }
 
-void MIRGraph::CleanupGraphData()
-{
+void MIRGraph::CleanupGraphData() {
 }
 /*
  * Parse an instruction, return the length of the instruction
@@ -959,7 +958,7 @@ static bool CreateDumpFile(std::string& fname, const char* dir_prefix, NarrowDex
   return true;
 }
 
-const char * MIRGraph::GetExtendedMirOpName(int index){
+const char * MIRGraph::GetExtendedMirOpName(int index) {
     return extended_mir_op_names_[index];
 }
 

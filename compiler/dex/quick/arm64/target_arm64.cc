@@ -140,9 +140,8 @@ RegStorage Arm64Mir2Lir::TargetReg(SpecialTargetRegister reg) {
   return res_reg;
 }
 
-void Arm64Mir2Lir::CompilerPostInitializeRegAlloc()
-{
-    //nothing here
+void Arm64Mir2Lir::CompilerPostInitializeRegAlloc() {
+    // nothing here
 }
 
 /*
@@ -624,12 +623,10 @@ Arm64Mir2Lir::Arm64Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAlloca
   Arm64Mir2LirPostInit(this);
 }
 
-void Arm64Mir2Lir::CleanupCodeGenData()
-{
+void Arm64Mir2Lir::CleanupCodeGenData() {
 }
 
-Arm64Mir2Lir::~Arm64Mir2Lir()
-{
+Arm64Mir2Lir::~Arm64Mir2Lir() {
   CleanupCodeGenData();
 }
 
