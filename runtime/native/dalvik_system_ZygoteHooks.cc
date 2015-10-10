@@ -31,6 +31,10 @@
 #endif
 #include <sys/resource.h>
 
+#ifdef HAVE_ANDROID_OS
+#include "cutils/properties.h"
+#endif
+
 namespace art {
 
 static void EnableDebugger() {
@@ -42,6 +46,10 @@ static void EnableDebugger() {
   }
 #endif
   // We don't want core dumps, though, so set the core dump size to 0.
+
+#ifdef HAVE_ANDROID_OS
+  char value[PROPERTY_VALUE_MAX];
+#endif
   rlimit rl;
 #ifdef HAVE_ANDROID_OS
   char prop_value[PROPERTY_VALUE_MAX];
@@ -56,9 +64,17 @@ static void EnableDebugger() {
   rl.rlim_cur = 0;
 #endif
   rl.rlim_max = RLIM_INFINITY;
-  if (setrlimit(RLIMIT_CORE, &rl) == -1) {
-    PLOG(ERROR) << "setrlimit(RLIMIT_CORE) failed for pid " << getpid();
+#ifdef HAVE_ANDROID_OS
+  property_get("persist.core.enabled", value, "");
+  if (strcmp(value, "1") != 0) {
+    LOG(DEBUG) << "Try to disable coredump for pid " << getpid();
+#endif
+    if (setrlimit(RLIMIT_CORE, &rl) == -1) {
+      PLOG(ERROR) << "setrlimit(RLIMIT_CORE) failed for pid " << getpid();
+    }
+#ifdef HAVE_ANDROID_OS
   }
+#endif
 }
 
 static void EnableDebugFeatures(uint32_t debug_flags) {
