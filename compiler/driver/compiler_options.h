@@ -27,7 +27,10 @@ class CompilerOptions {
     kSpace,               // Maximize space savings.
     kBalanced,            // Try to get the best performance return on compilation investment.
     kSpeed,               // Maximize runtime performance.
-    kEverything,          // Force compilation (Note: excludes compilaton of class initializers).
+    kEverything,          // Force compilation (Note: excludes compilation of class initializers).
+    kO1,                  // Vendor specific optimization level 1.
+    kO2,                  // Vendor specific optimization level 2.
+    kO3                   // Vendor specific optimization level 3.
   };
 
   // Guide heuristics to determine whether to compile method if profile data not available.

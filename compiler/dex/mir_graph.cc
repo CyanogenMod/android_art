@@ -33,6 +33,7 @@
 namespace art {
 
 #define MAX_PATTERN_LEN 5
+MIRGraph::MIRGraphFctPtr MIRGraph::plugin_create_mir_graph_ = nullptr;
 
 const char* MIRGraph::extended_mir_op_names_[kMirOpLast - kMirOpFirst] = {
   "Phi",
@@ -1491,9 +1492,14 @@ MIR* MIRGraph::NewMIR() {
   return mir;
 }
 
+BasicBlock* MIRGraph::CreateBasicBlock() {
+  BasicBlock* bb = new (arena_) BasicBlock();
+  return bb;
+}
+
 // Allocate a new basic block.
 BasicBlock* MIRGraph::NewMemBB(BBType block_type, int block_id) {
-  BasicBlock* bb = new (arena_) BasicBlock();
+  BasicBlock* bb = CreateBasicBlock();
 
   bb->block_type = block_type;
   bb->id = block_id;

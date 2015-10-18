@@ -743,6 +743,9 @@ class CompilerDriver {
   static void FindClinitImageClassesCallback(mirror::Object* object, void* arg)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
+  // Executes APK wide decisions based on data collected during the PreCompile Stage
+  void PreCompileSummary();
+
   void Compile(jobject class_loader, const std::vector<const DexFile*>& dex_files,
                ThreadPool* thread_pool, TimingLogger* timings);
   void CompileDexFile(jobject class_loader, const DexFile& dex_file,

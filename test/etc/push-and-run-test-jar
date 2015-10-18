@@ -102,6 +102,12 @@ while true; do
     elif [ "x$1" = "x--secondary" ]; then
         SECONDARY_DEX=":$DEX_LOCATION/$TEST_NAME-ex.jar"
         shift
+    elif [ "x$1" = "x--O1" ]; then
+      FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O1"
+    elif [ "x$1" = "x--O2" ]; then
+      FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O2"
+    elif [ "x$1" = "x--O3" ]; then
+      FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O3"
     elif expr "x$1" : "x--" >/dev/null 2>&1; then
         echo "unknown $0 option: $1" 1>&2
         exit 1

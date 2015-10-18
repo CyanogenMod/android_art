@@ -103,6 +103,18 @@ while true; do
         FLAGS="${FLAGS} -Xcompiler-option $option"
         COMPILER_FLAGS="${COMPILER_FLAGS} $option"
         shift
+    elif [ "x$1" = "x--O1" ]; then
+        FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O1 -Xcompiler-option --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=O1 --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        shift
+    elif [ "x$1" = "x--O2" ]; then
+        FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O2 -Xcompiler-option --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=O2 --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        shift
+    elif [ "x$1" = "x--O3" ]; then
+        FLAGS="${FLAGS} -Xcompiler-option --compiler-filter=O3 -Xcompiler-option --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        COMPILER_FLAGS="${COMPILER_FLAGS} --compiler-filter=O3 --plugin-loading-folder$ANDROID_HOST_OUT/lib/plugins/"
+        shift
     elif [ "x$1" = "x--runtime-option" ]; then
         shift
         option="$1"

@@ -29,7 +29,7 @@ template <typename PassDriverType>
 class PassDriverME: public PassDriver<PassDriverType> {
  public:
   explicit PassDriverME(CompilationUnit* cu)
-      : pass_me_data_holder_(), dump_cfg_folder_("/sdcard/") {
+      : PassDriver<PassDriverType>(cu), pass_me_data_holder_(), dump_cfg_folder_("/sdcard/") {
         pass_me_data_holder_.bb = nullptr;
         pass_me_data_holder_.c_unit = cu;
   }

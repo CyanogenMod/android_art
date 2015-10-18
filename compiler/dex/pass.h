@@ -20,11 +20,9 @@
 #include <string>
 
 #include "base/macros.h"
+#include "mir_graph.h"
 namespace art {
 
-// Forward declarations.
-struct BasicBlock;
-struct CompilationUnit;
 class Pass;
 
 // Empty Pass Data Class, can be extended by any pass extending the base Pass class.

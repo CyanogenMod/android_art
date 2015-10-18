@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include "dex/selectivity.h"
+
 #include "quick_compiler_callbacks.h"
 
 #include "quick/dex_file_to_method_inliner_map.h"
@@ -28,6 +30,7 @@ bool QuickCompilerCallbacks::MethodVerified(verifier::MethodVerifier* verifier) 
     MethodReference ref = verifier->GetMethodReference();
     method_inliner_map_->GetMethodInliner(ref.dex_file)
         ->AnalyseMethodCode(verifier);
+    Selectivity::AnalyzeVerifiedMethod(verifier);
   }
   return result;
 }

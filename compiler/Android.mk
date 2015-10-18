@@ -73,6 +73,7 @@ LIBART_COMPILER_SRC_FILES := \
 	dex/vreg_analysis.cc \
 	dex/ssa_transformation.cc \
 	dex/quick_compiler_callbacks.cc \
+	dex/selectivity.cc \
 	driver/compiler_driver.cc \
 	driver/dex_compilation_unit.cc \
 	jni/quick/arm/calling_convention_arm.cc \
@@ -126,6 +127,7 @@ LIBART_COMPILER_SRC_FILES := \
 	file_output_stream.cc \
 	image_writer.cc \
 	oat_writer.cc \
+	plugin_handler.cc \
 	vector_output_stream.cc
 
 ifeq ($(ART_SEA_IR_MODE),true)
@@ -181,6 +183,8 @@ define build-libart-compiler
   art_ndebug_or_debug := $(2)
 
   include $(CLEAR_VARS)
+  LOCAL_LDFLAGS += -Wl,-ldl
+
   ifeq ($$(art_target_or_host),host)
     LOCAL_IS_HOST_MODULE := true
   endif

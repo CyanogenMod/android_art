@@ -27,6 +27,10 @@ const Pass* GetMorePassInstance() {
     static const DummyPass pass;
     return &pass;
 }
+
+template<>
+void (*PassDriver<PassDriverMEOpts>::special_pass_driver_selection_)(PassDriver*, CompilationUnit*) = nullptr;
+
 /*
  * Create the pass list. These passes are immutable and are shared across the threads.
  *

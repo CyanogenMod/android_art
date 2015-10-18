@@ -37,6 +37,7 @@
 #include "class_linker.h"
 #include "compiler.h"
 #include "compiler_callbacks.h"
+#include "dex/selectivity.h"
 #include "dex_file-inl.h"
 #include "dex/pass_driver_me_opts.h"
 #include "dex/verification_results.h"
@@ -58,6 +59,7 @@
 #include "mirror/object_array-inl.h"
 #include "oat_writer.h"
 #include "os.h"
+#include "plugin_handler.h"
 #include "runtime.h"
 #include "ScopedLocalRef.h"
 #include "scoped_thread_state_change.h"
@@ -163,13 +165,13 @@ static void Usage(const char* fmt, ...) {
   UsageError("      Example: --compiler-backend=Portable");
   UsageError("      Default: Quick");
   UsageError("");
-  UsageError("  --compiler-filter=(verify-none|interpret-only|space|balanced|speed|everything):");
+  UsageError("  --compiler-filter=(verify-none|interpret-only|space|balanced|speed|O1|O2|O3|everything):");
   UsageError("      select compiler filter.");
   UsageError("      Example: --compiler-filter=everything");
 #if ART_SMALL_MODE
   UsageError("      Default: interpret-only");
 #else
-  UsageError("      Default: speed");
+  UsageError("      Default: O2");
 #endif
   UsageError("");
   UsageError("  --huge-method-max=<method-instruction-count>: the threshold size for a huge");
@@ -225,6 +227,10 @@ static void Usage(const char* fmt, ...) {
   UsageError("  --profile-file=<filename>: specify profiler output file to use for compilation.");
   UsageError("");
   UsageError("  --print-pass-names: print a list of pass names");
+#ifndef HAVE_ANDROID_OS
+  UsageError("");
+  UsageError("  --plugin-loading-folder:<name of the folder>");
+#endif
   UsageError("");
   UsageError("  --disable-passes=<pass-names>:  disable one or more passes separated by comma.");
   UsageError("      Example: --disable-passes=UseCount,BBOptimizations");
@@ -911,6 +917,10 @@ static int dex2oat(int argc, char** argv) {
   std::string profile_file;
   double top_k_profile_threshold = CompilerOptions::kDefaultTopKProfileThreshold;
 
+  // Pass logic and data.
+  std::string disable_passes;
+  bool print_pass_names = false;
+
   bool is_host = false;
   bool dump_stats = false;
   bool dump_timing = false;
@@ -920,11 +930,26 @@ static int dex2oat(int argc, char** argv) {
   bool dump_slow_timing = kIsDebugBuild;
   bool watch_dog_enabled = true;
   bool generate_gdb_information = kIsDebugBuild;
+  bool use_selectivity_analysis = false;
 
   // Checks are all explicit until we know the architecture.
   bool implicit_null_checks = false;
   bool implicit_so_checks = false;
   bool implicit_suspend_checks = false;
+  std::string plugin_loader_path;
+  if (kIsTargetBuild) {
+    plugin_loader_path = "/system";
+  } else {
+    plugin_loader_path = getenv("ANDROID_HOST_OUT");
+  }
+
+  if (Is64BitInstructionSet(kRuntimeISA)) {
+    plugin_loader_path += "/lib64/plugins";
+  } else {
+    plugin_loader_path += "/lib/plugins";
+  }
+
+  const char* plugin_loading_folder = plugin_loader_path.c_str();
 
   // Swap file.
   std::string swap_file_name;
@@ -1099,11 +1124,16 @@ static int dex2oat(int argc, char** argv) {
       // No profile
     } else if (option.starts_with("--top-k-profile-threshold=")) {
       ParseDouble(option.data(), '=', 0.0, 100.0, &top_k_profile_threshold);
+    } else if (option == "--use-selectivity-analysis") {
+      use_selectivity_analysis = true;
     } else if (option == "--print-pass-names") {
-      PassDriverMEOpts::PrintPassNames();
+      print_pass_names = true;
+#ifndef HAVE_ANDROID_OS
+    } else if (option.starts_with("--plugin-loading-folder")) {
+      plugin_loading_folder = option.substr(strlen("--plugin-loading-folder")).data();
+#endif
     } else if (option.starts_with("--disable-passes=")) {
-      std::string disable_passes = option.substr(strlen("--disable-passes=")).data();
-      PassDriverMEOpts::CreateDefaultPassList(disable_passes);
+      disable_passes = option.substr(strlen("--disable-passes=")).data();
     } else if (option.starts_with("--print-passes=")) {
       std::string print_passes = option.substr(strlen("--print-passes=")).data();
       PassDriverMEOpts::SetPrintPassList(print_passes);
@@ -1237,15 +1267,16 @@ static int dex2oat(int argc, char** argv) {
       // TODO: fix compiler for Mips64.
       compiler_filter_string = "interpret-only";
     } else if (image) {
-      compiler_filter_string = "speed";
+      compiler_filter_string = "O2";
     } else {
 #if ART_SMALL_MODE
       compiler_filter_string = "interpret-only";
 #else
-      compiler_filter_string = "speed";
+      compiler_filter_string = "O2";
 #endif
     }
   }
+
   CHECK(compiler_filter_string != nullptr);
   CompilerOptions::CompilerFilter compiler_filter = CompilerOptions::kDefaultCompilerFilter;
   if (strcmp(compiler_filter_string, "verify-none") == 0) {
@@ -1260,8 +1291,31 @@ static int dex2oat(int argc, char** argv) {
     compiler_filter = CompilerOptions::kSpeed;
   } else if (strcmp(compiler_filter_string, "everything") == 0) {
     compiler_filter = CompilerOptions::kEverything;
+  } else if (strcmp(compiler_filter_string, "O1") == 0) {
+    compiler_filter = CompilerOptions::kO1;
+  } else if (strcmp(compiler_filter_string, "O2") == 0) {
+    compiler_filter = CompilerOptions::kO2;
+  } else if (strcmp(compiler_filter_string, "O3") == 0) {
+    compiler_filter = CompilerOptions::kO3;
   } else {
     Usage("Unknown --compiler-filter value %s", compiler_filter_string);
+  }
+
+  // Store the compiler_filter for the selectivity system.
+  Selectivity::SetOriginalCompilerFilter(compiler_filter);
+
+  // Enable plugins if using compiler filter level O1 or greater.
+  if (compiler_filter >= CompilerOptions::kO1) {
+    // Now load up the plugins.
+    LoadUpPlugins(plugin_loading_folder);
+  }
+
+  if (!disable_passes.empty()) {
+      PassDriverMEOpts::CreateDefaultPassList(disable_passes);
+  }
+
+  if (print_pass_names) {
+      PassDriverMEOpts::PrintPassNames();
   }
 
   // Set the compilation target's implicit checks options.
@@ -1370,6 +1424,7 @@ static int dex2oat(int argc, char** argv) {
 
   std::unique_ptr<VerificationResults> verification_results(new VerificationResults(
                                                             compiler_options.get()));
+  Selectivity::ToggleAnalysis(use_selectivity_analysis, disable_passes);
   DexFileToMethodInlinerMap method_inliner_map;
   QuickCompilerCallbacks callbacks(verification_results.get(), &method_inliner_map);
   runtime_options.push_back(std::make_pair("compilercallbacks", &callbacks));
@@ -1535,7 +1590,7 @@ static int dex2oat(int argc, char** argv) {
       num_methods += dex_file->NumMethodIds();
     }
     if (num_methods <= compiler_options->GetNumDexMethodsThreshold()) {
-      compiler_options->SetCompilerFilter(CompilerOptions::kSpeed);
+      compiler_options->SetCompilerFilter(CompilerOptions::kO2);
       VLOG(compiler) << "Below method threshold, compiling anyways";
     }
   }

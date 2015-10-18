@@ -1036,6 +1036,9 @@ bool MIRGraph::SkipCompilation(std::string* skip_message) {
       small_cutoff = compiler_options.GetTinyMethodThreshold();
       default_cutoff = compiler_options.GetSmallMethodThreshold();
       break;
+    case CompilerOptions::kO1:
+    case CompilerOptions::kO2:
+    case CompilerOptions::kO3:
     case CompilerOptions::kSpeed:
       small_cutoff = compiler_options.GetHugeMethodThreshold();
       default_cutoff = compiler_options.GetHugeMethodThreshold();

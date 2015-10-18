@@ -109,6 +109,12 @@ class Compiler {
     return nullptr;
   }
 
+  /**
+   * @brief Return the compiler version, this is used to check for compatibility.
+   * @return the version number.
+   */
+  static const char* GetSHAVersion();
+
  protected:
   explicit Compiler(CompilerDriver* driver, uint64_t warning) :
       driver_(driver), maximum_compilation_time_before_warning_(warning) {

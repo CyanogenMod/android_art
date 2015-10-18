@@ -97,6 +97,16 @@ while true; do
         shift;
     elif [ "x$1" = "x--always-clean" ]; then
         run_args="${run_args} --always-clean"
+        shift;
+    elif [ "x$1" = "x--O1" ]; then
+        run_args="${run_args} --O1"
+        shift;
+    elif [ "x$1" = "x--O2" ]; then
+        run_args="${run_args} --O2"
+        shift;
+    elif [ "x$1" = "x--O3" ]; then
+        run_args="${run_args} --O3"
+        shift;
     elif expr "x$1" : "x--" >/dev/null 2>&1; then
         echo "unknown $0 option: $1" 1>&2
         usage="yes"

@@ -99,6 +99,10 @@ include $(art_path)/build/Android.cpplint.mk
 ########################################################################
 # product rules
 
+# generate sha for libart version checks
+sha = $(shell python $(art_path)/tools/gen_sha.py -p $(art_path))
+$(info SHA_VERSION=$(sha))
+
 include $(art_path)/runtime/Android.mk
 include $(art_path)/compiler/Android.mk
 include $(art_path)/dex2oat/Android.mk

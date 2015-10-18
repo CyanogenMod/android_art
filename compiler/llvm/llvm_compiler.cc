@@ -14,87 +14,46 @@
  * limitations under the License.
  */
 
-#include "compiler.h"
-#include "compilers.h"
-#include "driver/compiler_driver.h"
-#include "mirror/art_method-inl.h"
-
-#include "base/logging.h"
-#include "dex/quick/quick_compiler.h"
-#include "driver/compiler_driver.h"
-#include "llvm/llvm_compiler.h"
-#include "optimizing/optimizing_compiler.h"
-#include "sha_version.h"
-
+#include "llvm_compiler.h"
 
 #ifdef ART_USE_PORTABLE_COMPILER
+#include "compiler.h"
+#include "compiler_llvm.h"
 #include "dex/portable/mir_to_gbc.h"
+#include "dex_file.h"
 #include "elf_writer_mclinker.h"
+#include "mirror/art_method-inl.h"
 #endif
 
 namespace art {
 
-#ifdef ART_SEA_IR_MODE
-extern "C" art::CompiledMethod* SeaIrCompileMethod(const art::DexFile::CodeItem* code_item,
-                                                   uint32_t access_flags,
-                                                   art::InvokeType invoke_type,
-                                                   uint16_t class_def_idx,
-                                                   uint32_t method_idx,
-                                                   jobject class_loader,
-                                                   const art::DexFile& dex_file);
-#endif
-
-
-CompiledMethod* Compiler::TryCompileWithSeaIR(const art::DexFile::CodeItem* code_item,
-                                              uint32_t access_flags,
-                                              art::InvokeType invoke_type,
-                                              uint16_t class_def_idx,
-                                              uint32_t method_idx,
-                                              jobject class_loader,
-                                              const art::DexFile& dex_file) {
-#ifdef ART_SEA_IR_MODE
-    bool use_sea = (std::string::npos != PrettyMethod(method_idx, dex_file).find("fibonacci"));
-    if (use_sea) {
-      LOG(INFO) << "Using SEA IR to compile..." << std::endl;
-      return SeaIrCompileMethod(code_item,
-                                access_flags,
-                                invoke_type,
-                                class_def_idx,
-                                method_idx,
-                                class_loader,
-                                dex_file);
-  }
-#endif
-  return nullptr;
-}
-
-
 #ifdef ART_USE_PORTABLE_COMPILER
 
-extern "C" void ArtInitCompilerContext(art::CompilerDriver* driver);
+namespace llvm {
 
-extern "C" void ArtUnInitCompilerContext(art::CompilerDriver* driver);
+// Thread-local storage compiler worker threads
+class LLVMCompilerTls : public CompilerTls {
+  public:
+    LLVMCompilerTls() : llvm_info_(nullptr) {}
+    ~LLVMCompilerTls() {}
 
-extern "C" art::CompiledMethod* ArtCompileMethod(art::CompilerDriver* driver,
-                                                 const art::DexFile::CodeItem* code_item,
-                                                 uint32_t access_flags,
-                                                 art::InvokeType invoke_type,
-                                                 uint16_t class_def_idx,
-                                                 uint32_t method_idx,
-                                                 jobject class_loader,
-                                                 const art::DexFile& dex_file);
+    void* GetLLVMInfo() { return llvm_info_; }
 
-extern "C" art::CompiledMethod* ArtLLVMJniCompileMethod(art::CompilerDriver* driver,
-                                                        uint32_t access_flags, uint32_t method_idx,
-                                                        const art::DexFile& dex_file);
+    void SetLLVMInfo(void* llvm_info) { llvm_info_ = llvm_info; }
 
-extern "C" void compilerLLVMSetBitcodeFileName(art::CompilerDriver* driver,
-                                               std::string const& filename);
+  private:
+    void* llvm_info_;
+};
+
 
 
 class LLVMCompiler FINAL : public Compiler {
  public:
   explicit LLVMCompiler(CompilerDriver* driver) : Compiler(driver, 1000) {}
+
+  CompilerTls* CreateNewCompilerTls() {
+    return new LLVMCompilerTls();
+  }
 
   void Init() const OVERRIDE {
     ArtInitCompilerContext(GetCompilerDriver());
@@ -102,6 +61,11 @@ class LLVMCompiler FINAL : public Compiler {
 
   void UnInit() const OVERRIDE {
     ArtUnInitCompilerContext(GetCompilerDriver());
+  }
+
+  bool CanCompileMethod(uint32_t method_idx, const DexFile& dex_file, CompilationUnit* cu) const
+      OVERRIDE {
+    return true;
   }
 
   CompiledMethod* Compile(const DexFile::CodeItem* code_item,
@@ -182,31 +146,16 @@ class LLVMCompiler FINAL : public Compiler {
  private:
   DISALLOW_COPY_AND_ASSIGN(LLVMCompiler);
 };
+
+}  // namespace llvm
 #endif
 
-Compiler* Compiler::Create(CompilerDriver* driver, Compiler::Kind kind) {
-  switch (kind) {
-    case kQuick:
-      return new QuickCompiler(driver);
-      break;
-    case kOptimizing:
-      return new OptimizingCompiler(driver);
-      break;
-    case kPortable:
+Compiler* CreateLLVMCompiler(CompilerDriver* driver) {
 #ifdef ART_USE_PORTABLE_COMPILER
-      return new LLVMCompiler(driver);
+      return new llvm::LLVMCompiler(driver);
 #else
-      LOG(FATAL) << "Portable compiler not compiled";
+      return nullptr;
 #endif
-      break;
-    default:
-      LOG(FATAL) << "UNREACHABLE";
-  }
-  return nullptr;
-}
-
-const char* Compiler::GetSHAVersion() {
-  return SHA_ART_VERSION;
 }
 
 }  // namespace art
