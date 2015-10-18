@@ -151,7 +151,7 @@ char (&ArraySizeHelper(T (&array)[N]))[N];
 #define UNLIKELY(x)     __builtin_expect((x), false)
 
 // Stringify the argument.
-#define QUOTE(x...) #x
+#define QUOTE(...) #__VA_ARGS__;
 #define STRINGIFY(x) QUOTE(x)
 
 #ifndef NDEBUG

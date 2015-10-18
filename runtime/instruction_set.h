@@ -180,8 +180,16 @@ size_t GetStackOverflowReservedBytes(InstructionSet isa);
 enum InstructionFeatures {
   kHwDiv  = 0x1,              // Supports hardware divide.
   kHwLpae = 0x2,              // Supports Large Physical Address Extension.
-  kFix835769 = 0x4,           // need fix CortexA53 errata 835769
-};
+  kFix835769 = 0x400,           // need fix CortexA53 errata 835769
+  kSSSE3  = 0x4,              // x86 128bit SIMD - Supplemental SSE.
+  kSSE4_1 = 0x8,              // x86 128bit SIMD SSE4.1.
+  kSSE4_2 = 0x10,             // x86 128bit SIMD SSE4.2.
+  kAVX    = 0x20,             // x86 256bit SIMD AVX.
+  kAVX2   = 0x40,             // x86 256bit SIMD AVX 2.0.
+  kAES_IN = 0x80,
+  kPOPCNT = 0x100,
+  kMOVBE  = 0x200,
+ };
 
 // This is a bitmask of supported features per architecture.
 class PACKED(4) InstructionSetFeatures {
@@ -213,6 +221,74 @@ class PACKED(4) InstructionSetFeatures {
 
   void SetFix835769(bool v) {
     mask_ = (mask_ & ~kFix835769) | (v ? kFix835769 : 0);
+  }
+
+  bool HasSSSE3(void) const {
+    return (mask_ & kSSSE3) != 0;
+  }
+
+  bool HasSSE4_1(void) const {
+    return (mask_ & kSSE4_1) != 0;
+  }
+
+  bool HasSSE4_2(void) const {
+    return (mask_ & kSSE4_2) != 0;
+  }
+
+  bool HasAVX(void) const {
+    return (mask_ & kAVX) != 0;
+  }
+
+  bool HasAVX2(void) const {
+    return (mask_ & kAVX2) != 0;
+  }
+
+  bool HasAES_IN(void) const {
+    return (mask_ & kAES_IN) != 0;
+  }
+
+  bool HasPOPCNT(void) const {
+    return (mask_ & kPOPCNT) != 0;
+  }
+
+  bool HasMOVBE(void) const {
+    return (mask_ & kMOVBE) != 0;
+  }
+
+  void SetHasSSSE3() {
+    mask_ = mask_ | kSSSE3;
+  }
+
+  void SetHasSSE4_1() {
+    SetHasSSSE3();
+    mask_ = mask_ | kSSE4_1;
+  }
+
+  void SetHasSSE4_2() {
+    SetHasSSE4_1();
+    mask_ = mask_ | kSSE4_2;
+  }
+
+  void SetHasAVX() {
+    SetHasSSE4_2();
+    mask_ = mask_ | kAVX;
+  }
+
+  void SetHasAVX2() {
+    SetHasAVX();
+    mask_ = mask_ | kAVX2;
+  }
+
+  void SetHasAES_IN() {
+    mask_ = mask_ | kAES_IN;
+  }
+
+  void SetHasPOPCNT() {
+    mask_ = mask_ | kPOPCNT;
+  }
+
+  void SetHasMOVBE() {
+    mask_ = mask_ | kMOVBE;
   }
 
   std::string GetFeatureString() const;
