@@ -59,6 +59,9 @@ static_assert(5U == static_cast<size_t>(kX86_64), "kX86_64 not 5");
 static_assert(6U == static_cast<size_t>(kMips),   "kMips not 6");
 static_assert(7U == static_cast<size_t>(kMips64), "kMips64 not 7");
 
+// check the pass status for early bail out
+thread_local bool check_bail_out;
+
 // Additional disabled optimizations (over generally disabled) per instruction set.
 static constexpr uint32_t kDisabledOptimizationsPerISA[] = {
     // 0 = kNone.
@@ -730,11 +733,11 @@ CompiledMethod* QuickCompiler::Compile(const DexFile::CodeItem* code_item,
   PassDriverMEOpts pass_driver(GetPreOptPassManager(), GetPostOptPassManager(), &cu);
   pass_driver.Launch();
 
-  if (GetCheckBailOutFlag() && cu.mir_graph->PassFailed()) {
+  if (check_bail_out && cu.mir_graph->PassFailed()) {
     return nullptr;
   }
 
-  if (GetCheckBailOutFlag()) {
+  if (check_bail_out) {
     VLOG(compiler) << "fast compile applied to " << PrettyMethod(method_idx, dex_file);
   }
 
@@ -866,7 +869,6 @@ QuickCompiler::QuickCompiler(CompilerDriver* driver) : Compiler(driver, 100) {
   if (pass_manager_options->GetPrintPassOptions()) {
     PassDriverMEPostOpt::PrintPassOptions(post_opt_pass_manager_.get());
   }
-  check_bail_out_ = false;
 }
 
 QuickCompiler::~QuickCompiler() {
