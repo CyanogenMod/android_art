@@ -47,33 +47,7 @@ CompilationUnit::CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDr
     mir_graph(nullptr),
     cg(nullptr),
     timings("QuickCompiler", true, false),
-    print_pass(false),
-    compiler_(nullptr) {
-}
-
-CompilationUnit::CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver,
-                                 ClassLinker* linker, const QuickCompiler* compiler)
-  : compiler_driver(driver),
-    class_linker(linker),
-    dex_file(nullptr),
-    class_loader(nullptr),
-    class_def_idx(0),
-    method_idx(0),
-    access_flags(0),
-    invoke_type(kDirect),
-    shorty(nullptr),
-    disable_opt(0),
-    enable_debug(0),
-    verbose(false),
-    instruction_set(isa),
-    target64(Is64BitInstructionSet(isa)),
-    arena(pool),
-    arena_stack(pool),
-    mir_graph(nullptr),
-    cg(nullptr),
-    timings("QuickCompiler", true, false),
-    print_pass(false),
-    compiler_(compiler) {
+    print_pass(false) {
 }
 
 CompilationUnit::~CompilationUnit() {

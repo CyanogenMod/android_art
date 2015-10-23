@@ -27,7 +27,6 @@
 #include "base/timing_logger.h"
 #include "invoke_type.h"
 #include "safe_map.h"
-#include "quick/quick_compiler.h"
 
 namespace art {
 
@@ -162,8 +161,6 @@ struct OptionContent {
 
 struct CompilationUnit {
   CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver, ClassLinker* linker);
-  CompilationUnit(ArenaPool* pool, InstructionSet isa, CompilerDriver* driver, ClassLinker* linker,
-                  const QuickCompiler* compiler);
   ~CompilationUnit();
 
   void StartTimingSplit(const char* label);
@@ -197,7 +194,7 @@ struct CompilationUnit {
   std::unique_ptr<Mir2Lir> cg;           // Target-specific codegen.
   TimingLogger timings;
   bool print_pass;                 // Do we want to print a pass or not?
-  const QuickCompiler* compiler_;
+
   /**
    * @brief Holds pass options for current pass being applied to compilation unit.
    * @details This is updated for every pass to contain the overridden pass options

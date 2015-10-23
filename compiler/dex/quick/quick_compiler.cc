@@ -651,7 +651,7 @@ CompiledMethod* QuickCompiler::Compile(const DexFile::CodeItem* code_item,
   if (instruction_set == kArm) {
     instruction_set = kThumb2;
   }
-  CompilationUnit cu(runtime->GetArenaPool(), instruction_set, driver, class_linker, this);
+  CompilationUnit cu(runtime->GetArenaPool(), instruction_set, driver, class_linker);
   cu.dex_file = &dex_file;
   cu.class_def_idx = class_def_idx;
   cu.method_idx = method_idx;
