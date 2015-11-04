@@ -271,7 +271,11 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
     ifeq ($(TARGET_HAVE_QC_PERF),true)
 	  # FIXME! Current PERF is built with GCC and needs emutls
       LOCAL_CLANG := false
-      LOCAL_WHOLE_STATIC_LIBRARIES += libqc-art-compiler
+      ifeq ($(TARGET_BOARD_PLATFORM),msm8996)
+        LOCAL_WHOLE_STATIC_LIBRARIES_arm += libqc-art-compiler
+      else
+        LOCAL_WHOLE_STATIC_LIBRARIES += libqc-art-compiler
+      endif
     endif
     include $(BUILD_SHARED_LIBRARY)
   else # host
