@@ -263,6 +263,10 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
   ifeq ($$(art_target_or_host),target)
     # For atrace.
     LOCAL_SHARED_LIBRARIES += libcutils
+    # FIXME! Strange things happen when building with CLANG
+    ifeq ($(TARGET_ARCH),arm)
+      LOCAL_CLANG := false
+    endif
     ifeq ($(TARGET_HAVE_QC_PERF),true)
 	  # FIXME! Current PERF is built with GCC and needs emutls
       LOCAL_CLANG := false
