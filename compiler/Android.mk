@@ -243,6 +243,10 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
     endif
   endif
 
+  ifeq ($(BOARD_DISABLE_ART_CAF_BAILOUT),true)
+    LOCAL_CFLAGS += -DDISABLE_CAF_BAILOUT
+  endif
+
   LOCAL_C_INCLUDES += $(ART_C_INCLUDES) art/runtime
 
   ifeq ($$(art_target_or_host),host)

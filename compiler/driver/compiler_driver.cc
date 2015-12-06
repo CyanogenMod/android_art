@@ -74,7 +74,9 @@
 
 namespace art {
 
+#ifndef DISABLE_CAF_BAILOUT
 extern thread_local bool check_bail_out;
+#endif
 
 static constexpr bool kTimeCompileMethod = !kIsDebugBuild;
 
@@ -2294,7 +2296,9 @@ void CompilerDriver::CompileMethod(Thread* self, const DexFile::CodeItem* code_i
                    IsMethodToCompile(method_ref);
     if (compile) {
       // NOTE: if compiler declines to compile this method, it will return null.
+#ifndef DISABLE_CAF_BAILOUT
       check_bail_out = false;
+#endif
       compiled_method = compiler_->Compile(code_item, access_flags, invoke_type, class_def_idx,
                                            method_idx, class_loader, dex_file);
     }
