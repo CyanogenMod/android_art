@@ -73,12 +73,21 @@ class QuickCompiler : public Compiler {
 
   bool CheckMoreConditions(CompilationUnit* cu) const QC_WEAK;
 
+#ifdef DISABLE_CAF_BAILOUT
+  void SetCheckBailOutFlag() { check_bail_out_ = true; }
+  void ResetCheckBailOutFlag() { check_bail_out_ = false; }
+  bool GetCheckBailOutFlag() const { return check_bail_out_; }
+#endif
+
  protected:
   explicit QuickCompiler(CompilerDriver* driver);
 
  private:
   std::unique_ptr<PassManager> pre_opt_pass_manager_;
   std::unique_ptr<PassManager> post_opt_pass_manager_;
+#ifdef DISABLE_CAF_BAILOUT
+  bool check_bail_out_;
+#endif
   DISALLOW_COPY_AND_ASSIGN(QuickCompiler);
 };
 

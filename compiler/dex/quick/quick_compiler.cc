@@ -59,8 +59,10 @@ static_assert(5U == static_cast<size_t>(kX86_64), "kX86_64 not 5");
 static_assert(6U == static_cast<size_t>(kMips),   "kMips not 6");
 static_assert(7U == static_cast<size_t>(kMips64), "kMips64 not 7");
 
+#ifndef DISABLE_CAF_BAILOUT
 // check the pass status for early bail out
 thread_local bool check_bail_out;
+#endif
 
 // Additional disabled optimizations (over generally disabled) per instruction set.
 static constexpr uint32_t kDisabledOptimizationsPerISA[] = {
@@ -732,11 +734,19 @@ CompiledMethod* QuickCompiler::Compile(const DexFile::CodeItem* code_item,
   PassDriverMEOpts pass_driver(GetPreOptPassManager(), GetPostOptPassManager(), &cu);
   pass_driver.Launch();
 
+#ifndef DISABLE_CAF_BAILOUT
   if (check_bail_out && cu.mir_graph->PassFailed()) {
+#else
+  if (GetCheckBailOutFlag() && cu.mir_graph->PassFailed()) {
+#endif
     return nullptr;
   }
 
+#ifndef DISABLE_CAF_BAILOUT
   if (check_bail_out) {
+#else
+  if (GetCheckBailOutFlag()) {
+#endif
     VLOG(compiler) << "fast compile applied to " << PrettyMethod(method_idx, dex_file);
   }
 
@@ -868,6 +878,9 @@ QuickCompiler::QuickCompiler(CompilerDriver* driver) : Compiler(driver, 100) {
   if (pass_manager_options->GetPrintPassOptions()) {
     PassDriverMEPostOpt::PrintPassOptions(post_opt_pass_manager_.get());
   }
+#ifdef DISABLE_CAF_BAILOUT
+  check_bail_out_ = false;
+#endif
 }
 
 QuickCompiler::~QuickCompiler() {
