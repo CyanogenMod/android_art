@@ -436,8 +436,10 @@ class WatchDog {
   // Debug builds are slower so they have larger timeouts.
   static constexpr int64_t kSlowdownFactor = kIsDebugBuild ? 5U : 1U;
 
-  // 60 minutes scaled by kSlowdownFactor.
-  static constexpr int64_t kWatchDogTimeoutSeconds = kSlowdownFactor * 60 * 60;
+  // 9.5 minutes scaled by kSlowdownFactor. This is slightly smaller than the Package Manager
+  // watchdog (PackageManagerService.WATCHDOG_TIMEOUT, 10 minutes), so that dex2oat will abort
+  // itself before that watchdog would take down the system server.
+  static constexpr int64_t kWatchDogTimeoutSeconds = kSlowdownFactor * (9 * 60 + 30);
 
   bool is_watch_dog_enabled_;
   bool shutting_down_;
@@ -505,6 +507,7 @@ class Dex2Oat FINAL {
       compiler_kind_(kUseOptimizingCompiler ? Compiler::kOptimizing : Compiler::kQuick),
       instruction_set_(kRuntimeISA),
       // Take the default set of instruction features from the build.
+      verification_results_(nullptr),
       method_inliner_map_(),
       runtime_(nullptr),
       thread_count_(sysconf(_SC_NPROCESSORS_CONF)),
@@ -520,6 +523,7 @@ class Dex2Oat FINAL {
       compiled_methods_filename_(nullptr),
       image_(false),
       is_host_(false),
+      driver_(nullptr),
       dump_stats_(false),
       dump_passes_(false),
       dump_timing_(false),
@@ -539,6 +543,8 @@ class Dex2Oat FINAL {
 
     if (kIsDebugBuild || (RUNNING_ON_VALGRIND != 0)) {
       delete runtime_;  // See field declaration for why this is manual.
+      delete driver_;
+      delete verification_results_;
     }
   }
 
@@ -1182,9 +1188,9 @@ class Dex2Oat FINAL {
       runtime_options.push_back(std::make_pair(runtime_args_[i], nullptr));
     }
 
-    verification_results_.reset(new VerificationResults(compiler_options_.get()));
+    verification_results_ = new VerificationResults(compiler_options_.get());
     callbacks_.reset(new QuickCompilerCallbacks(
-        verification_results_.get(),
+        verification_results_,
         &method_inliner_map_,
         image_ ?
             CompilerCallbacks::CallbackMode::kCompileBootImage :
@@ -1396,23 +1402,23 @@ class Dex2Oat FINAL {
       class_loader = class_linker->CreatePathClassLoader(self, class_path_files);
     }
 
-    driver_.reset(new CompilerDriver(compiler_options_.get(),
-                                     verification_results_.get(),
-                                     &method_inliner_map_,
-                                     compiler_kind_,
-                                     instruction_set_,
-                                     instruction_set_features_.get(),
-                                     image_,
-                                     image_classes_.release(),
-                                     compiled_classes_.release(),
-                                     nullptr,
-                                     thread_count_,
-                                     dump_stats_,
-                                     dump_passes_,
-                                     dump_cfg_file_name_,
-                                     compiler_phases_timings_.get(),
-                                     swap_fd_,
-                                     profile_file_));
+    driver_ = new CompilerDriver(compiler_options_.get(),
+                                 verification_results_,
+                                 &method_inliner_map_,
+                                 compiler_kind_,
+                                 instruction_set_,
+                                 instruction_set_features_.get(),
+                                 image_,
+                                 image_classes_.release(),
+                                 compiled_classes_.release(),
+                                 nullptr,
+                                 thread_count_,
+                                 dump_stats_,
+                                 dump_passes_,
+                                 dump_cfg_file_name_,
+                                 compiler_phases_timings_.get(),
+                                 swap_fd_,
+                                 profile_file_);
 
     driver_->CompileAll(class_loader, dex_files_, timings_);
   }
@@ -1514,7 +1520,7 @@ class Dex2Oat FINAL {
       oat_writer.reset(new OatWriter(dex_files_, image_file_location_oat_checksum,
                                      image_file_location_oat_data_begin,
                                      image_patch_delta,
-                                     driver_.get(),
+                                     driver_,
                                      image_writer_.get(),
                                      timings_,
                                      key_value_store_.get()));
@@ -1854,7 +1860,7 @@ class Dex2Oat FINAL {
     // Note: driver creation can fail when loading an invalid dex file.
     LOG(INFO) << "dex2oat took " << PrettyDuration(NanoTime() - start_ns_)
               << " (threads: " << thread_count_ << ") "
-              << ((Runtime::Current() != nullptr && driver_.get() != nullptr) ?
+              << ((Runtime::Current() != nullptr && driver_ != nullptr) ?
                   driver_->GetMemoryUsageString(kIsDebugBuild || VLOG_IS_ON(compiler)) :
                   "");
   }
@@ -1867,7 +1873,10 @@ class Dex2Oat FINAL {
 
   std::unique_ptr<SafeMap<std::string, std::string> > key_value_store_;
 
-  std::unique_ptr<VerificationResults> verification_results_;
+  // Not a unique_ptr as we want to just exit on non-debug builds, not bringing the compiler down
+  // in an orderly fashion. The destructor takes care of deleting this.
+  VerificationResults* verification_results_;
+
   DexFileToMethodInlinerMap method_inliner_map_;
   std::unique_ptr<QuickCompilerCallbacks> callbacks_;
 
@@ -1910,7 +1919,11 @@ class Dex2Oat FINAL {
   std::string android_root_;
   std::vector<const DexFile*> dex_files_;
   std::vector<std::unique_ptr<const DexFile>> opened_dex_files_;
-  std::unique_ptr<CompilerDriver> driver_;
+
+  // Not a unique_ptr as we want to just exit on non-debug builds, not bringing the driver down
+  // in an orderly fashion. The destructor takes care of deleting this.
+  CompilerDriver* driver_;
+
   std::vector<std::string> verbose_methods_;
   bool dump_stats_;
   bool dump_passes_;
