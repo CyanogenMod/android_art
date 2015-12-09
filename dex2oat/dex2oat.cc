@@ -713,8 +713,8 @@ class WatchDog {
   // 30 minutes scaled by kSlowdownFactor.
   static const unsigned int kWatchDogTimeoutSeconds = kSlowdownFactor * 30 * 60;
 #else
-  // 6 minutes scaled by kSlowdownFactor.
-  static const unsigned int kWatchDogTimeoutSeconds = kSlowdownFactor * 6 * 60;
+  // 60 minutes scaled by kSlowdownFactor.
+  static const unsigned int kWatchDogTimeoutSeconds = kSlowdownFactor * 60 * 60;
 #endif
 
   bool is_watch_dog_enabled_;
