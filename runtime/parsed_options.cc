@@ -540,6 +540,9 @@ bool ParsedOptions::Parse(const RuntimeOptions& options, bool ignore_unrecognize
     args.Set(M::HeapGrowthLimit, args.GetOrDefault(M::MemoryMaximumSize));
   }
 
+  // If -Xdex2oat is not passed, make it dependent on whether the JIT is enabled.
+  args.SetIfMissing(M::Dex2Oat, !args.GetOrDefault(M::UseJIT));
+
   *runtime_options = std::move(args);
   return true;
 }
