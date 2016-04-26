@@ -72,7 +72,7 @@ ART_TARGET_CFLAGS :=
 
 # Host.
 ART_HOST_CLANG := false
-ifeq ($(WITHOUT_HOST_CLANG),false)
+ifneq ($(WITHOUT_HOST_CLANG),true)
   # By default, host builds use clang for better warnings.
   ART_HOST_CLANG := true
 endif
