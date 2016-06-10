@@ -269,10 +269,8 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
     # For atrace.
     LOCAL_SHARED_LIBRARIES += libcutils
     ifeq ($(TARGET_HAVE_QC_PERF),true)
-      ifeq ($(TARGET_ARCH),arm)
-	    # FIXME! Current PERF is built with GCC and needs emutls
-        LOCAL_CLANG := false
-      endif
+	  # FIXME! Current PERF is built with GCC and needs emutls
+      LOCAL_CLANG_arm := false
       LOCAL_WHOLE_STATIC_LIBRARIES_arm += libqc-art-compiler
     endif
     include $(BUILD_SHARED_LIBRARY)
