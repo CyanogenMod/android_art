@@ -383,30 +383,7 @@ ImageSpace* ImageSpace::CreateBootImage(const char* image_location,
                                        &has_system, &cache_filename, &dalvik_cache_exists,
                                        &has_cache, &is_global_cache);
 
-  // If we're starting with the global cache, and we're the zygote, try to see whether there are
-  // OTA artifacts from the A/B OTA preopting to move over.
-  // (It is structurally simpler to check this here, instead of complicating the compile/relocate
-  // logic below.)
   const bool is_zygote = Runtime::Current()->IsZygote();
-  if (is_global_cache && is_zygote) {
-    VLOG(startup) << "Checking for A/B OTA data.";
-    TryMoveOTAArtifacts(cache_filename, dalvik_cache_exists);
-
-    // Retry. There are two cases where the old info is outdated:
-    // * There wasn't a boot image before (e.g., some failure on boot), but now the OTA preopted
-    //   image has been moved in-place.
-    // * There was a boot image before, and we tried to move the OTA preopted image, but a failure
-    //   happened and there is no file anymore.
-    found_image = FindImageFilename(image_location,
-                                    image_isa,
-                                    &system_filename,
-                                    &has_system,
-                                    &cache_filename,
-                                    &dalvik_cache_exists,
-                                    &has_cache,
-                                    &is_global_cache);
-  }
-
   if (is_zygote && !secondary_image) {
     MarkZygoteStart(image_isa, Runtime::Current()->GetZygoteMaxFailedBoots());
   }
@@ -528,6 +505,17 @@ ImageSpace* ImageSpace::CreateBootImage(const char* image_location,
                                error_msg);
     }
     if (space != nullptr) {
+      // Check whether there is enough space left over in the data partition. Even if we can load
+      // the image, we need to be conservative, as some parts of the platform are not very tolerant
+      // of space constraints.
+      // ImageSpace doesn't know about the data partition per se, it relies on the FindImageFilename
+      // helper (which relies on GetDalvikCache). So for now, if we load an image out of /system,
+      // ignore the check (as it would test for free space in /system instead).
+      if (!is_system && !CheckSpace(*image_filename, error_msg)) {
+        // No. Delete the generated image and try to run out of the dex files.
+        PruneDalvikCache(image_isa);
+        return nullptr;
+      }
       return space;
     }
 
@@ -1128,6 +1116,10 @@ static bool RelocateInPlace(ImageHeader& image_header,
       TimingLogger::ScopedTiming timing("Fixup fields", &logger);
       FixupArtFieldVisitor field_visitor(boot_image, boot_oat, app_image, app_oat);
       image_header.VisitPackedArtFields(&field_visitor, target_base);
+    }
+    {
+      TimingLogger::ScopedTiming timing("Fixup imt", &logger);
+      image_header.VisitPackedImTables(fixup_adapter, target_base, pointer_size);
     }
     {
       TimingLogger::ScopedTiming timing("Fixup conflict tables", &logger);

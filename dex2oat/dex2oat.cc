@@ -22,6 +22,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -80,6 +81,9 @@
 #include "zip_archive.h"
 
 namespace art {
+
+static constexpr size_t kDefaultMinDexFilesForSwap = 2;
+static constexpr size_t kDefaultMinDexFileCumulativeSizeForSwap = 20 * MB;
 
 static int original_argc;
 static char** original_argv;
@@ -351,6 +355,20 @@ NO_RETURN static void Usage(const char* fmt, ...) {
   UsageError("  --swap-fd=<file-descriptor>:  specifies a file to use for swap (by descriptor).");
   UsageError("      Example: --swap-fd=10");
   UsageError("");
+  UsageError("  --swap-dex-size-threshold=<size>:  specifies the minimum total dex file size in");
+  UsageError("      bytes to allow the use of swap.");
+  UsageError("      Example: --swap-dex-size-threshold=1000000");
+  UsageError("      Default: %zu", kDefaultMinDexFileCumulativeSizeForSwap);
+  UsageError("");
+  UsageError("  --swap-dex-count-threshold=<count>:  specifies the minimum number of dex files to");
+  UsageError("      allow the use of swap.");
+  UsageError("      Example: --swap-dex-count-threshold=10");
+  UsageError("      Default: %zu", kDefaultMinDexFilesForSwap);
+  UsageError("");
+  UsageError("  --very-large-app-threshold=<size>:  specifies the minimum total dex file size in");
+  UsageError("      bytes to consider the input \"very large\" and punt on the compilation.");
+  UsageError("      Example: --very-large-app-threshold=100000000");
+  UsageError("");
   UsageError("  --app-image-fd=<file-descriptor>: specify output file descriptor for app image.");
   UsageError("      Example: --app-image-fd=10");
   UsageError("");
@@ -472,25 +490,6 @@ class WatchDog {
   pthread_attr_t attr_;
   pthread_t pthread_;
 };
-
-static constexpr size_t kMinDexFilesForSwap = 2;
-static constexpr size_t kMinDexFileCumulativeSizeForSwap = 20 * MB;
-
-static bool UseSwap(bool is_image, std::vector<const DexFile*>& dex_files) {
-  if (is_image) {
-    // Don't use swap, we know generation should succeed, and we don't want to slow it down.
-    return false;
-  }
-  if (dex_files.size() < kMinDexFilesForSwap) {
-    // If there are less dex files than the threshold, assume it's gonna be fine.
-    return false;
-  }
-  size_t dex_files_size = 0;
-  for (const auto* dex_file : dex_files) {
-    dex_files_size += dex_file->GetHeader().file_size_;
-  }
-  return dex_files_size >= kMinDexFileCumulativeSizeForSwap;
-}
 
 class Dex2Oat FINAL {
  public:
@@ -1138,6 +1137,21 @@ class Dex2Oat FINAL {
         swap_file_name_ = option.substr(strlen("--swap-file=")).data();
       } else if (option.starts_with("--swap-fd=")) {
         ParseUintOption(option, "--swap-fd", &swap_fd_, Usage);
+      } else if (option.starts_with("--swap-dex-size-threshold=")) {
+        ParseUintOption(option,
+                        "--swap-dex-size-threshold",
+                        &min_dex_file_cumulative_size_for_swap_,
+                        Usage);
+      } else if (option.starts_with("--swap-dex-count-threshold=")) {
+        ParseUintOption(option,
+                        "--swap-dex-count-threshold",
+                        &min_dex_files_for_swap_,
+                        Usage);
+      } else if (option.starts_with("--very-large-app-threshold=")) {
+        ParseUintOption(option,
+                        "--very-large-app-threshold",
+                        &very_large_threshold_,
+                        Usage);
       } else if (option.starts_with("--app-image-file=")) {
         app_image_file_name_ = option.substr(strlen("--app-image-file=")).data();
       } else if (option.starts_with("--app-image-fd=")) {
@@ -1419,6 +1433,19 @@ class Dex2Oat FINAL {
       }
     }
     // Note that dex2oat won't close the swap_fd_. The compiler driver's swap space will do that.
+
+    // If we need to downgrade the compiler-filter for size reasons, do that check now.
+    if (!IsBootImage() && IsVeryLarge(dex_files_)) {
+      if (!CompilerFilter::IsAsGoodAs(CompilerFilter::kVerifyAtRuntime,
+                                      compiler_options_->GetCompilerFilter())) {
+        LOG(INFO) << "Very large app, downgrading to verify-at-runtime.";
+        // Note: this change won't be reflected in the key-value store, as that had to be
+        //       finalized before loading the dex files. This setup is currently required
+        //       to get the size from the DexFile objects.
+        // TODO: refactor. b/29790079
+        compiler_options_->SetCompilerFilter(CompilerFilter::kVerifyAtRuntime);
+      }
+    }
 
     if (IsBootImage()) {
       // For boot image, pass opened dex files to the Runtime::Create().
@@ -1848,10 +1875,6 @@ class Dex2Oat FINAL {
     }
   }
 
-  CompilerOptions* GetCompilerOptions() const {
-    return compiler_options_.get();
-  }
-
   bool IsImage() const {
     return IsAppImage() || IsBootImage();
   }
@@ -1903,6 +1926,30 @@ class Dex2Oat FINAL {
   }
 
  private:
+  bool UseSwap(bool is_image, const std::vector<const DexFile*>& dex_files) {
+    if (is_image) {
+      // Don't use swap, we know generation should succeed, and we don't want to slow it down.
+      return false;
+    }
+    if (dex_files.size() < min_dex_files_for_swap_) {
+      // If there are less dex files than the threshold, assume it's gonna be fine.
+      return false;
+    }
+    size_t dex_files_size = 0;
+    for (const auto* dex_file : dex_files) {
+      dex_files_size += dex_file->GetHeader().file_size_;
+    }
+    return dex_files_size >= min_dex_file_cumulative_size_for_swap_;
+  }
+
+  bool IsVeryLarge(std::vector<const DexFile*>& dex_files) {
+    size_t dex_files_size = 0;
+    for (const auto* dex_file : dex_files) {
+      dex_files_size += dex_file->GetHeader().file_size_;
+    }
+    return dex_files_size >= very_large_threshold_;
+  }
+
   template <typename T>
   static std::vector<T*> MakeNonOwningPointerVector(const std::vector<std::unique_ptr<T>>& src) {
     std::vector<T*> result;
@@ -2490,6 +2537,9 @@ class Dex2Oat FINAL {
   bool dump_slow_timing_;
   std::string swap_file_name_;
   int swap_fd_;
+  size_t min_dex_files_for_swap_ = kDefaultMinDexFilesForSwap;
+  size_t min_dex_file_cumulative_size_for_swap_ = kDefaultMinDexFileCumulativeSizeForSwap;
+  size_t very_large_threshold_ = std::numeric_limits<size_t>::max();
   std::string app_image_file_name_;
   int app_image_fd_;
   std::string profile_file_;

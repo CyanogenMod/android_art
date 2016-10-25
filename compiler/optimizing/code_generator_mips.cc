@@ -3731,8 +3731,6 @@ void LocationsBuilderMIPS::VisitInvokeInterface(HInvokeInterface* invoke) {
 void InstructionCodeGeneratorMIPS::VisitInvokeInterface(HInvokeInterface* invoke) {
   // TODO: b/18116999, our IMTs can miss an IncompatibleClassChangeError.
   Register temp = invoke->GetLocations()->GetTemp(0).AsRegister<Register>();
-  uint32_t method_offset = mirror::Class::EmbeddedImTableEntryOffset(
-      invoke->GetImtIndex() % mirror::Class::kImtSize, kMipsPointerSize).Uint32Value();
   Location receiver = invoke->GetLocations()->InAt(0);
   uint32_t class_offset = mirror::Object::ClassOffset().Int32Value();
   Offset entry_point = ArtMethod::EntryPointFromQuickCompiledCodeOffset(kMipsWordSize);
@@ -3749,6 +3747,10 @@ void InstructionCodeGeneratorMIPS::VisitInvokeInterface(HInvokeInterface* invoke
     __ LoadFromOffset(kLoadWord, temp, receiver.AsRegister<Register>(), class_offset);
   }
   codegen_->MaybeRecordImplicitNullCheck(invoke);
+  __ LoadFromOffset(kLoadWord, temp, temp,
+      mirror::Class::ImtPtrOffset(kMipsPointerSize).Uint32Value());
+  uint32_t method_offset = static_cast<uint32_t>(ImTable::OffsetOfElement(
+      invoke->GetImtIndex() % ImTable::kSize, kMipsPointerSize));
   // temp = temp->GetImtEntryAt(method_offset);
   __ LoadFromOffset(kLoadWord, temp, temp, method_offset);
   // T9 = temp->GetEntryPoint();
@@ -5187,18 +5189,25 @@ void LocationsBuilderMIPS::VisitClassTableGet(HClassTableGet* instruction) {
 
 void InstructionCodeGeneratorMIPS::VisitClassTableGet(HClassTableGet* instruction) {
   LocationSummary* locations = instruction->GetLocations();
-  uint32_t method_offset = 0;
   if (instruction->GetTableKind() == HClassTableGet::TableKind::kVTable) {
-    method_offset = mirror::Class::EmbeddedVTableEntryOffset(
+    uint32_t method_offset = mirror::Class::EmbeddedVTableEntryOffset(
         instruction->GetIndex(), kMipsPointerSize).SizeValue();
+    __ LoadFromOffset(kLoadWord,
+                      locations->Out().AsRegister<Register>(),
+                      locations->InAt(0).AsRegister<Register>(),
+                      method_offset);
   } else {
-    method_offset = mirror::Class::EmbeddedImTableEntryOffset(
-        instruction->GetIndex() % mirror::Class::kImtSize, kMipsPointerSize).Uint32Value();
+    uint32_t method_offset = static_cast<uint32_t>(ImTable::OffsetOfElement(
+        instruction->GetIndex() % ImTable::kSize, kMipsPointerSize));
+    __ LoadFromOffset(kLoadWord,
+                      locations->Out().AsRegister<Register>(),
+                      locations->InAt(0).AsRegister<Register>(),
+                      mirror::Class::ImtPtrOffset(kMipsPointerSize).Uint32Value());
+    __ LoadFromOffset(kLoadWord,
+                      locations->Out().AsRegister<Register>(),
+                      locations->Out().AsRegister<Register>(),
+                      method_offset);
   }
-  __ LoadFromOffset(kLoadWord,
-                    locations->Out().AsRegister<Register>(),
-                    locations->InAt(0).AsRegister<Register>(),
-                    method_offset);
 }
 
 #undef __
