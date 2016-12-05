@@ -80,7 +80,12 @@
 #include "well_known_classes.h"
 #include "zip_archive.h"
 
+#if !defined(__APPLE__)
+// Apple doesn't have CLOCK_MONOTONIC
 #define WATCHDOG_CLOCK  CLOCK_MONOTONIC
+#else
+#define WATCHDOG_CLOCK  CLOCK_REALTIME
+#endif
 
 namespace art {
 
@@ -416,7 +421,10 @@ class WatchDog {
     const char* reason = "dex2oat watch dog thread startup";
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_mutex_init, (&mutex_, nullptr), reason);
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_condattr_init, (&condattr_), reason);
+#if !defined(__APPLE__)
+    // Apple doesn't have CLOCK_MONOTONIC or pthread_condattr_setclock.
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_condattr_setclock, (&condattr_, WATCHDOG_CLOCK), reason);
+#endif
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_cond_init, (&cond_, &condattr_), reason);
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_condattr_destroy, (&condattr_), reason);
     CHECK_WATCH_DOG_PTHREAD_CALL(pthread_attr_init, (&attr_), reason);
