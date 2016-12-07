@@ -26,6 +26,9 @@
 #include <signal.h>
 #include <sys/syscall.h>
 #include "base/memory_tool.h"
+#if defined(__APPLE__)
+#include <crt_externs.h>  // for _NSGetEnviron
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -155,6 +158,22 @@ struct TraceConfig {
   std::string trace_file;
   size_t trace_file_size;
 };
+
+namespace {
+#ifdef __APPLE__
+inline char** GetEnviron() {
+  // When Google Test is built as a framework on MacOS X, the environ variable
+  // is unavailable. Apple's documentation (man environ) recommends using
+  // _NSGetEnviron() instead.
+  return *_NSGetEnviron();
+}
+#else
+// Some POSIX platforms expect you to declare environ. extern "C" makes
+// it reside in the global namespace.
+extern "C" char** environ;
+inline char** GetEnviron() { return environ; }
+#endif
+}  // namespace
 
 Runtime::Runtime()
     : resolution_method_(nullptr),
@@ -387,7 +406,7 @@ struct AbortState {
   }
 };
 
-void Runtime::Abort() {
+void Runtime::Abort(const char* msg) {
   gAborting++;  // set before taking any locks
 
   // Ensure that we don't have multiple threads trying to abort at once,
@@ -401,6 +420,12 @@ void Runtime::Abort() {
   // so be explicit.
   AbortState state;
   LOG(INTERNAL_FATAL) << Dumpable<AbortState>(state);
+
+  // Sometimes we dump long messages, and the Android abort message only retains the first line.
+  // In those cases, just log the message again, to avoid logcat limits.
+  if (msg != nullptr && strchr(msg, '\n') != nullptr) {
+    LOG(INTERNAL_FATAL) << msg;
+  }
 
   // Call the abort hook if we have one.
   if (Runtime::Current() != nullptr && Runtime::Current()->abort_ != nullptr) {
@@ -826,7 +851,7 @@ static bool OpenDexFilesFromImage(const std::string& image_location,
       return false;
     }
     std::string error_msg;
-    std::unique_ptr<ElfFile> elf_file(ElfFile::Open(file.release(),
+    std::unique_ptr<ElfFile> elf_file(ElfFile::Open(file.get(),
                                                     false,
                                                     false,
                                                     /*low_4gb*/false,
@@ -859,9 +884,9 @@ static bool OpenDexFilesFromImage(const std::string& image_location,
       const OatHeader& boot_oat_header = oat_file->GetOatHeader();
       const char* boot_cp = boot_oat_header.GetStoreValueByKey(OatHeader::kBootClassPathKey);
       if (boot_cp != nullptr) {
-        gc::space::ImageSpace::CreateMultiImageLocations(image_locations[0],
-                                                         boot_cp,
-                                                         &image_locations);
+        gc::space::ImageSpace::ExtractMultiImageLocations(image_locations[0],
+                                                          boot_cp,
+                                                          &image_locations);
       }
     }
 
@@ -905,6 +930,10 @@ void Runtime::SetSentinel(mirror::Object* sentinel) {
 }
 
 bool Runtime::Init(RuntimeArgumentMap&& runtime_options_in) {
+  // (b/30160149): protect subprocesses from modifications to LD_LIBRARY_PATH, etc.
+  // Take a snapshot of the environment at the time the runtime was created, for use by Exec, etc.
+  env_snapshot_.TakeSnapshot();
+
   RuntimeArgumentMap runtime_options(std::move(runtime_options_in));
   ScopedTrace trace(__FUNCTION__);
   CHECK_EQ(sysconf(_SC_PAGE_SIZE), kPageSize);
@@ -2013,6 +2042,24 @@ bool Runtime::UseJitCompilation() const {
 // Returns true if profile saving is enabled. GetJit() will be not null in this case.
 bool Runtime::SaveProfileInfo() const {
   return (jit_ != nullptr) && jit_->SaveProfilingInfo();
+}
+
+void Runtime::EnvSnapshot::TakeSnapshot() {
+  char** env = GetEnviron();
+  for (size_t i = 0; env[i] != nullptr; ++i) {
+    name_value_pairs_.emplace_back(new std::string(env[i]));
+  }
+  // The strings in name_value_pairs_ retain ownership of the c_str, but we assign pointers
+  // for quick use by GetSnapshot.  This avoids allocation and copying cost at Exec.
+  c_env_vector_.reset(new char*[name_value_pairs_.size() + 1]);
+  for (size_t i = 0; env[i] != nullptr; ++i) {
+    c_env_vector_[i] = const_cast<char*>(name_value_pairs_[i]->c_str());
+  }
+  c_env_vector_[name_value_pairs_.size()] = nullptr;
+}
+
+char** Runtime::EnvSnapshot::GetSnapshot() const {
+  return c_env_vector_.get();
 }
 
 }  // namespace art

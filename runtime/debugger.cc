@@ -1755,20 +1755,30 @@ static JDWP::JdwpError GetFieldValueImpl(JDWP::RefTypeId ref_type_id, JDWP::Obje
     return error;
   }
 
-  mirror::Object* o = Dbg::GetObjectRegistry()->Get<mirror::Object*>(object_id, &error);
-  if ((!is_static && o == nullptr) || error != JDWP::ERR_NONE) {
+  Thread* self = Thread::Current();
+  StackHandleScope<2> hs(self);
+  MutableHandle<mirror::Object>
+      o(hs.NewHandle(Dbg::GetObjectRegistry()->Get<mirror::Object*>(object_id, &error)));
+  if ((!is_static && o.Get() == nullptr) || error != JDWP::ERR_NONE) {
     return JDWP::ERR_INVALID_OBJECT;
   }
   ArtField* f = FromFieldId(field_id);
 
   mirror::Class* receiver_class = c;
-  if (receiver_class == nullptr && o != nullptr) {
+  if (receiver_class == nullptr && o.Get() != nullptr) {
     receiver_class = o->GetClass();
   }
+
   // TODO: should we give up now if receiver_class is null?
   if (receiver_class != nullptr && !f->GetDeclaringClass()->IsAssignableFrom(receiver_class)) {
     LOG(INFO) << "ERR_INVALID_FIELDID: " << PrettyField(f) << " " << PrettyClass(receiver_class);
     return JDWP::ERR_INVALID_FIELDID;
+  }
+
+  // Ensure the field's class is initialized.
+  Handle<mirror::Class> klass(hs.NewHandle(f->GetDeclaringClass()));
+  if (!Runtime::Current()->GetClassLinker()->EnsureInitialized(self, klass, true, false)) {
+    LOG(WARNING) << "Not able to initialize class for SetValues: " << PrettyClass(klass.Get());
   }
 
   // The RI only enforces the static/non-static mismatch in one direction.
@@ -1784,10 +1794,10 @@ static JDWP::JdwpError GetFieldValueImpl(JDWP::RefTypeId ref_type_id, JDWP::Obje
     }
   }
   if (f->IsStatic()) {
-    o = f->GetDeclaringClass();
+    o.Assign(f->GetDeclaringClass());
   }
 
-  JValue field_value(GetArtFieldValue(f, o));
+  JValue field_value(GetArtFieldValue(f, o.Get()));
   JDWP::JdwpTag tag = BasicTagFromDescriptor(f->GetTypeDescriptor());
   Dbg::OutputJValue(tag, &field_value, pReply);
   return JDWP::ERR_NONE;
@@ -1877,11 +1887,20 @@ static JDWP::JdwpError SetFieldValueImpl(JDWP::ObjectId object_id, JDWP::FieldId
                                          uint64_t value, int width, bool is_static)
     SHARED_REQUIRES(Locks::mutator_lock_) {
   JDWP::JdwpError error;
-  mirror::Object* o = Dbg::GetObjectRegistry()->Get<mirror::Object*>(object_id, &error);
-  if ((!is_static && o == nullptr) || error != JDWP::ERR_NONE) {
+  Thread* self = Thread::Current();
+  StackHandleScope<2> hs(self);
+  MutableHandle<mirror::Object>
+      o(hs.NewHandle(Dbg::GetObjectRegistry()->Get<mirror::Object*>(object_id, &error)));
+  if ((!is_static && o.Get() == nullptr) || error != JDWP::ERR_NONE) {
     return JDWP::ERR_INVALID_OBJECT;
   }
   ArtField* f = FromFieldId(field_id);
+
+  // Ensure the field's class is initialized.
+  Handle<mirror::Class> klass(hs.NewHandle(f->GetDeclaringClass()));
+  if (!Runtime::Current()->GetClassLinker()->EnsureInitialized(self, klass, true, false)) {
+    LOG(WARNING) << "Not able to initialize class for SetValues: " << PrettyClass(klass.Get());
+  }
 
   // The RI only enforces the static/non-static mismatch in one direction.
   // TODO: should we change the tests and check both?
@@ -1896,9 +1915,9 @@ static JDWP::JdwpError SetFieldValueImpl(JDWP::ObjectId object_id, JDWP::FieldId
     }
   }
   if (f->IsStatic()) {
-    o = f->GetDeclaringClass();
+    o.Assign(f->GetDeclaringClass());
   }
-  return SetArtFieldValue(f, o, value, width);
+  return SetArtFieldValue(f, o.Get(), value, width);
 }
 
 JDWP::JdwpError Dbg::SetFieldValue(JDWP::ObjectId object_id, JDWP::FieldId field_id, uint64_t value,
@@ -4049,7 +4068,7 @@ void Dbg::ExecuteMethodWithoutPendingException(ScopedObjectAccess& soa, DebugInv
   // Prepare JDWP ids for the reply.
   JDWP::JdwpTag result_tag = BasicTagFromDescriptor(m->GetShorty());
   const bool is_object_result = (result_tag == JDWP::JT_OBJECT);
-  StackHandleScope<2> hs(soa.Self());
+  StackHandleScope<3> hs(soa.Self());
   Handle<mirror::Object> object_result = hs.NewHandle(is_object_result ? result.GetL() : nullptr);
   Handle<mirror::Throwable> exception = hs.NewHandle(soa.Self()->GetException());
   soa.Self()->ClearException();
@@ -4088,10 +4107,17 @@ void Dbg::ExecuteMethodWithoutPendingException(ScopedObjectAccess& soa, DebugInv
     // unless we threw, in which case we return null.
     DCHECK_EQ(JDWP::JT_VOID, result_tag);
     if (exceptionObjectId == 0) {
-      // TODO we could keep the receiver ObjectId in the DebugInvokeReq to avoid looking into the
-      // object registry.
-      result_value = GetObjectRegistry()->Add(pReq->receiver.Read());
-      result_tag = TagFromObject(soa, pReq->receiver.Read());
+      if (m->GetDeclaringClass()->IsStringClass()) {
+        // For string constructors, the new string is remapped to the receiver (stored in ref).
+        Handle<mirror::Object> decoded_ref = hs.NewHandle(soa.Self()->DecodeJObject(ref.get()));
+        result_value = gRegistry->Add(decoded_ref);
+        result_tag = TagFromObject(soa, decoded_ref.Get());
+      } else {
+        // TODO we could keep the receiver ObjectId in the DebugInvokeReq to avoid looking into the
+        // object registry.
+        result_value = GetObjectRegistry()->Add(pReq->receiver.Read());
+        result_tag = TagFromObject(soa, pReq->receiver.Read());
+      }
     } else {
       result_value = 0;
       result_tag = JDWP::JT_OBJECT;
